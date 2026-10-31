@@ -13,17 +13,18 @@ const title_format = "{s}{s}{s}@{s}{s}{s} ~";
 /// "Storage (/)", declared in `modules/mod.zig`), the separator and the value.
 const field_format = "{s}{s}  {s}{s:<14}{s}" ++ separator ++ " {s}";
 
+/// Renders the title, the field column and, when enabled, the logo column.
+///
+/// `out` is injected so the layout can be asserted without touching stdout.
+/// Flushing is the caller's responsibility.
 pub fn print(
+    out: *std.Io.Writer,
     allocator: std.mem.Allocator,
     io: std.Io,
     environ_map: std.process.Environ.Map,
     config: *const Config,
     modules: modules_mod.Modules,
 ) !void {
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
-    const out = &stdout_writer.interface;
-
     var lines: std.ArrayList([]const u8) = .empty;
     defer lines.deinit(allocator);
 
@@ -42,20 +43,19 @@ pub fn print(
     try out.print("\n", .{});
 
     if (config.logo.enabled) {
-        try printWithLogo(allocator, io, out, environ_map, config, lines.items);
+        try printWithLogo(out, allocator, io, environ_map, config, lines.items);
     } else {
         for (lines.items) |line| try out.print("{s}\n", .{line});
     }
 
     try out.print("\n", .{});
-    try out.flush();
 }
 
 /// Draws the logo column on the left and the info column on the right.
 fn printWithLogo(
+    out: *std.Io.Writer,
     allocator: std.mem.Allocator,
     io: std.Io,
-    out: *std.Io.Writer,
     environ_map: std.process.Environ.Map,
     config: *const Config,
     lines: []const []const u8,
@@ -112,7 +112,11 @@ fn loadLogo(
         null;
     defer if (expanded) |buffer| allocator.free(buffer);
 
-    const file = std.Io.Dir.openFileAbsolute(io, expanded orelse path, .{}) catch return config.logo.embed;
+    // An unexpanded "~/" path is relative, and openFileAbsolute asserts on that.
+    const resolved = expanded orelse path;
+    if (!std.fs.path.isAbsolute(resolved)) return config.logo.embed;
+
+    const file = std.Io.Dir.openFileAbsolute(io, resolved, .{}) catch return config.logo.embed;
     defer file.close(io);
 
     var file_buffer: [4096]u8 = undefined;
@@ -128,21 +132,213 @@ fn codepointWidth(line: []const u8) usize {
 
 // -- Tests --
 
+const logo_path = "/tmp/systema_test_logo.txt";
+
+fn writeLogoFile(content: []const u8) !void {
+    const file = try std.Io.Dir.createFileAbsolute(std.testing.io, logo_path, .{});
+    defer file.close(std.testing.io);
+
+    var writer = file.writer(std.testing.io, &.{});
+    try writer.interface.writeAll(content);
+    try writer.interface.flush();
+}
+
+fn testEnviron() !std.process.Environ.Map {
+    var environ_map = std.process.Environ.Map.init(std.testing.allocator);
+    errdefer environ_map.deinit();
+
+    try environ_map.put("USER", "alice");
+    try environ_map.put("SHELL", "/usr/bin/zsh");
+    return environ_map;
+}
+
+fn render(
+    out: *std.Io.Writer,
+    allocator: std.mem.Allocator,
+    environ_map: std.process.Environ.Map,
+    config: *const Config,
+) !void {
+    const modules = try modules_mod.init(allocator, std.testing.io, environ_map);
+    try print(out, allocator, std.testing.io, environ_map, config, modules);
+}
+
+/// Column of `needle` in `line`, counted in codepoints and ignoring ANSI
+/// escape sequences, so that the visible alignment can be asserted.
+fn visibleIndexOf(line: []const u8, needle: []const u8) ?usize {
+    const index = std.mem.indexOf(u8, line, needle) orelse return null;
+
+    var column: usize = 0;
+    var i: usize = 0;
+    while (i < index) {
+        if (line[i] == 0x1b) {
+            i += 1;
+            if (i < index and line[i] == '[') {
+                i += 1;
+                while (i < index and !(line[i] >= 0x40 and line[i] <= 0x7e)) i += 1;
+                i += 1;
+            }
+            continue;
+        }
+        const length = std.unicode.utf8ByteSequenceLength(line[i]) catch 1;
+        i += @min(length, index - i);
+        column += 1;
+    }
+    return column;
+}
+
+test "print draws the title and one line per field when the logo is off" {
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var environ_map = try testEnviron();
+    defer environ_map.deinit();
+
+    const config = Config{ .name = "systema", .version = "1.0.0", .logo = .{ .enabled = false } };
+    try render(&out.writer, arena.allocator(), environ_map, &config);
+
+    const output = out.writer.buffered();
+
+    // Leading blank line, title, nine fields, trailing blank line.
+    try std.testing.expectEqual(@as(usize, 12), std.mem.count(u8, output, "\n"));
+    try std.testing.expect(std.mem.indexOf(u8, output, "alice") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, " ~\n") != null);
+}
+
+test "every field line puts the separator in the same column" {
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var environ_map = try testEnviron();
+    defer environ_map.deinit();
+
+    const config = Config{ .name = "systema", .version = "1.0.0", .logo = .{ .enabled = false } };
+    try render(&out.writer, arena.allocator(), environ_map, &config);
+
+    // This is the regression test for the labels being hand-aligned: "Storage
+    // (/)" used to sit one column further right than the rest.
+    var expected: ?usize = null;
+    var seen: usize = 0;
+
+    var line_iter = std.mem.splitScalar(u8, out.writer.buffered(), '\n');
+    while (line_iter.next()) |line| {
+        const column = visibleIndexOf(line, separator) orelse continue;
+        if (expected) |value| {
+            try std.testing.expectEqual(value, column);
+        } else {
+            expected = column;
+        }
+        seen += 1;
+    }
+
+    try std.testing.expectEqual(@as(usize, 9), seen);
+}
+
+test "print interleaves the logo and the info column" {
+    defer std.Io.Dir.deleteFileAbsolute(std.testing.io, logo_path) catch {};
+    try writeLogoFile("AA\nBB\n");
+
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var environ_map = try testEnviron();
+    defer environ_map.deinit();
+
+    const config = Config{
+        .name = "systema",
+        .version = "1.0.0",
+        .logo = .{ .path = logo_path, .gap = 2 },
+    };
+    try render(&out.writer, arena.allocator(), environ_map, &config);
+
+    var line_iter = std.mem.splitScalar(u8, out.writer.buffered(), '\n');
+    _ = line_iter.next(); // leading blank line
+
+    const first = line_iter.next().?;
+    const first_logo = std.mem.indexOf(u8, first, "AA") orelse return error.MissingLogoLine;
+    const first_title = std.mem.indexOf(u8, first, "alice") orelse return error.MissingTitle;
+    try std.testing.expect(first_logo < first_title);
+
+    const second = line_iter.next().?;
+    try std.testing.expect(std.mem.indexOf(u8, second, "BB") != null);
+    try std.testing.expect(std.mem.indexOf(u8, second, "System") != null);
+
+    // Once the logo runs out, the info column keeps going with a blank gutter.
+    const third = line_iter.next().?;
+    try std.testing.expect(std.mem.startsWith(u8, third, "    "));
+    try std.testing.expect(std.mem.indexOf(u8, third, "Kernel") != null);
+}
+
+test "loadLogo reads the file at the given path" {
+    defer std.Io.Dir.deleteFileAbsolute(std.testing.io, logo_path) catch {};
+    try writeLogoFile("X\nY\n");
+
+    var environ_map = try testEnviron();
+    defer environ_map.deinit();
+
+    var config = Config{ .name = "systema", .version = "1.0.0", .logo = .{ .path = logo_path } };
+
+    const logo = try loadLogo(std.testing.allocator, std.testing.io, environ_map, &config);
+    defer std.testing.allocator.free(logo);
+
+    try std.testing.expectEqualStrings("X\nY\n", logo);
+}
+
+test "loadLogo expands a leading ~/ from $HOME" {
+    defer std.Io.Dir.deleteFileAbsolute(std.testing.io, logo_path) catch {};
+    try writeLogoFile("Z\n");
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var environ_map = try testEnviron();
+    defer environ_map.deinit();
+    try environ_map.put("HOME", std.fs.path.dirname(logo_path).?);
+
+    var config = Config{
+        .name = "systema",
+        .version = "1.0.0",
+        .logo = .{ .path = try std.fmt.allocPrint(allocator, "~/{s}", .{std.fs.path.basename(logo_path)}) },
+    };
+
+    const logo = try loadLogo(allocator, std.testing.io, environ_map, &config);
+    try std.testing.expectEqualStrings("Z\n", logo);
+}
+
 test "loadLogo falls back to the embedded asset for an unreadable path" {
+    var environ_map = try testEnviron();
+    defer environ_map.deinit();
+
+    var config = Config{ .name = "systema", .version = "1.0.0", .logo = .{ .path = "/nonexistent/logo" } };
+
+    const logo = try loadLogo(std.testing.allocator, std.testing.io, environ_map, &config);
+    try std.testing.expectEqualStrings(config.logo.embed, logo);
+}
+
+test "loadLogo falls back when $HOME is unset for a ~/ path" {
     var environ_map = std.process.Environ.Map.init(std.testing.allocator);
     defer environ_map.deinit();
 
-    var config = Config{ .name = "systema", .version = "0.0.0", .logo = .{ .path = "/nonexistent/logo" } };
+    var config = Config{ .name = "systema", .version = "1.0.0", .logo = .{ .path = "~/logo" } };
 
     const logo = try loadLogo(std.testing.allocator, std.testing.io, environ_map, &config);
     try std.testing.expectEqualStrings(config.logo.embed, logo);
 }
 
 test "loadLogo uses the embedded asset when no path is set" {
-    var environ_map = std.process.Environ.Map.init(std.testing.allocator);
+    var environ_map = try testEnviron();
     defer environ_map.deinit();
 
-    var config = Config{ .name = "systema", .version = "0.0.0" };
+    var config = Config{ .name = "systema", .version = "1.0.0" };
 
     const logo = try loadLogo(std.testing.allocator, std.testing.io, environ_map, &config);
     try std.testing.expectEqualStrings(config.logo.embed, logo);
@@ -151,4 +347,8 @@ test "loadLogo uses the embedded asset when no path is set" {
 test "codepointWidth counts codepoints, not bytes" {
     try std.testing.expectEqual(@as(usize, 3), codepointWidth("abc"));
     try std.testing.expectEqual(@as(usize, 1), codepointWidth("\u{f313}"));
+}
+
+test "codepointWidth falls back to the byte length for invalid UTF-8" {
+    try std.testing.expectEqual(@as(usize, 2), codepointWidth("\xff\xfe"));
 }
