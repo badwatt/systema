@@ -1,7 +1,7 @@
 const std = @import("std");
 const Cli = @import("mod.zig");
-const Colors = @import("utils").colors;
-const fmt = @import("utils").fmt;
+const Colors = @import("style");
+const fmt = @import("fmt.zig");
 
 pub fn getVersion(self: *Cli) !void {
     const help = try text(self.allocator, self.config.name, self.config.version);

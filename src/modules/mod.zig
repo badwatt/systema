@@ -1,6 +1,6 @@
 const std = @import("std");
 const Config = @import("config").Config;
-const Colors = @import("utils").colors;
+const Colors = @import("style");
 const username_mod = @import("username.zig");
 const hostname_mod = @import("hostname.zig");
 const system_mod = @import("system.zig");

@@ -1,4 +1,4 @@
-const Colors = @import("utils").colors;
+const Colors = @import("style");
 
 /// Everything about how the output looks. `main` builds the default instance and
 /// the CLI mutates it before rendering.

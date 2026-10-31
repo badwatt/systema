@@ -7,8 +7,8 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const utils_mod = b.createModule(.{
-        .root_source_file = b.path("src/utils/mod.zig"),
+    const style_mod = b.createModule(.{
+        .root_source_file = b.path("src/style.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -18,7 +18,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "utils", .module = utils_mod },
+            .{ .name = "style", .module = style_mod },
         },
     });
 
@@ -27,7 +27,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "utils", .module = utils_mod },
+            .{ .name = "style", .module = style_mod },
             .{ .name = "config", .module = config_mod },
         },
     });
@@ -39,7 +39,7 @@ pub fn build(b: *std.Build) void {
         // storage.zig calls statvfs(3) through libc.
         .link_libc = target.result.os.tag == .linux,
         .imports = &.{
-            .{ .name = "utils", .module = utils_mod },
+            .{ .name = "style", .module = style_mod },
             .{ .name = "config", .module = config_mod },
         },
     });
@@ -58,7 +58,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "cli", .module = cli_mod },
             .{ .name = "modules", .module = modules_mod },
             .{ .name = "config", .module = config_mod },
-            .{ .name = "utils", .module = utils_mod },
+            .{ .name = "style", .module = style_mod },
             .{ .name = "zon", .module = zon_mod },
         },
     });
@@ -82,7 +82,7 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run tests");
 
-    for ([_]*std.Build.Module{ utils_mod, cli_mod, modules_mod, app_mod }) |test_root| {
+    for ([_]*std.Build.Module{ style_mod, cli_mod, modules_mod, app_mod }) |test_root| {
         test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = test_root })).step);
     }
 }

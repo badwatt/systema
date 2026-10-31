@@ -1,5 +1,5 @@
 const std = @import("std");
-const fmt = @import("utils").fmt;
+const fmt = @import("fmt.zig");
 const Cli = @import("mod.zig");
 
 pub fn getHelp(self: *Cli) !void {

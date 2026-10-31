@@ -42,5 +42,39 @@ pub const GRAY = hex(null, "#585B70") catch unreachable;
 pub const BLACK = hex(null, "#1E1E2E") catch unreachable;
 
 pub const RESET = "\x1b[0m";
-pub const BOLD = "\x1b[1m";
-pub const UNDERLINE = "\x1b[4m";
+
+// -- Tests --
+
+test "hex: valid 6-char hex returns an ANSI foreground color" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    try std.testing.expectEqualStrings("\x1b[38;2;170;187;204m", try hex(arena.allocator(), "AABBCC"));
+}
+
+test "hex: accepts a leading #" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    try std.testing.expectEqualStrings("\x1b[38;2;170;187;204m", try hex(arena.allocator(), "#AABBCC"));
+}
+
+test "hex: rejects the wrong length" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    try std.testing.expectError(error.InvalidLength, hex(arena.allocator(), "ABC"));
+}
+
+test "hex: rejects non-hex digits" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    try std.testing.expectError(error.InvalidCharacter, hex(arena.allocator(), "GGGGGG"));
+}
+
+test "comptime palette is populated" {
+    for ([_][]const u8{ RED, GREEN, BLUE, CYAN, RESET }) |color| {
+        try std.testing.expect(color.len > 0);
+    }
+}

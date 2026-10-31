@@ -1,5 +1,5 @@
 const std = @import("std");
-const Colors = @import("utils").colors;
+const Colors = @import("style");
 const Modules = @import("modules");
 const Config = @import("config").Config;
 const log = std.log.scoped(.main);

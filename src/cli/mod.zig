@@ -1,8 +1,7 @@
 const std = @import("std");
 const Config = @import("config").Config;
-const utils = @import("utils");
-const fmt = utils.fmt;
-const Colors = utils.colors;
+const fmt = @import("fmt.zig");
+const Colors = @import("style");
 const help_mod = @import("help.zig");
 const version_mod = @import("version.zig");
 

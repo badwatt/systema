@@ -1,5 +1,5 @@
 const std = @import("std");
-const Colors = @import("utils").colors;
+const Colors = @import("style");
 
 pub const DiskInfo = struct {
     disk_path: []const u8,
