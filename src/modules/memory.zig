@@ -1,5 +1,5 @@
 const std = @import("std");
-const Colors = @import("style");
+const Style = @import("style").Style;
 
 pub const Memory = struct {
     total: f64 = 0,
@@ -55,14 +55,14 @@ fn readMeminfo(io: std.Io) !Memory {
 
 pub fn value(allocator: std.mem.Allocator, io: std.Io, environ_map: std.process.Environ.Map) ![]const u8 {
     _ = environ_map;
-    return format(allocator, try readMeminfo(io));
+    return format(allocator, try readMeminfo(io), .{});
 }
 
-pub fn format(allocator: std.mem.Allocator, meminfo: Memory) ![]const u8 {
+pub fn format(allocator: std.mem.Allocator, meminfo: Memory, style: Style) ![]const u8 {
     return std.fmt.allocPrint(
         allocator,
         "{d:.2} GiB / {d:.2} GiB ({s}{d:.0}%{s})",
-        .{ meminfo.used, meminfo.total, Colors.CYAN, meminfo.used_percent, Colors.RESET },
+        .{ meminfo.used, meminfo.total, style.accent, meminfo.used_percent, style.reset },
     );
 }
 
@@ -93,8 +93,8 @@ test "parseMeminfoData: empty input yields zeroes instead of NaN" {
 test "format renders used, total and percentage" {
     const meminfo = Memory{ .total = 16, .available = 4, .used = 12, .used_percent = 75 };
 
-    const result = try format(std.testing.allocator, meminfo);
+    const result = try format(std.testing.allocator, meminfo, .plain);
     defer std.testing.allocator.free(result);
 
-    try std.testing.expectEqualStrings("12.00 GiB / 16.00 GiB (\x1b[38;2;0;255;255m75%\x1b[0m)", result);
+    try std.testing.expectEqualStrings("12.00 GiB / 16.00 GiB (75%)", result);
 }

@@ -43,6 +43,24 @@ pub const BLACK = hex(null, "#1E1E2E") catch unreachable;
 
 pub const RESET = "\x1b[0m";
 
+/// Colors handed to the module formatters. The modules never choose colors
+/// themselves; they only place what they are given, which keeps the escape
+/// sequences out of the data layer and makes the formatters testable.
+pub const Style = struct {
+    /// Highlights the interesting part of a value (e.g. a percentage).
+    accent: []const u8 = CYAN,
+    /// The six swatches drawn by the "Colors" field.
+    swatches: [6][]const u8 = .{ BLUE, CYAN, GREEN, YELLOW, RED, MAGENTA },
+    reset: []const u8 = RESET,
+
+    /// No escape sequences at all, for tests and non-tty output.
+    pub const plain: Style = .{
+        .accent = "",
+        .swatches = .{ "", "", "", "", "", "" },
+        .reset = "",
+    };
+};
+
 // -- Tests --
 
 test "hex: valid 6-char hex returns an ANSI foreground color" {

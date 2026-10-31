@@ -1,5 +1,5 @@
 const std = @import("std");
-const Colors = @import("style");
+const Style = @import("style").Style;
 
 pub const DiskInfo = struct {
     disk_size: f64,
@@ -55,13 +55,13 @@ pub fn stat(allocator: std.mem.Allocator, disk_path: []const u8) !DiskInfo {
     };
 }
 
-pub fn format(allocator: std.mem.Allocator, disk: DiskInfo) ![]const u8 {
+pub fn format(allocator: std.mem.Allocator, disk: DiskInfo, style: Style) ![]const u8 {
     return std.fmt.allocPrint(allocator, "{d:.2} GiB / {d:.2} GiB ({s}{d}%{s})", .{
         disk.disk_usage,
         disk.disk_size,
-        Colors.CYAN,
+        style.accent,
         disk.disk_usage_percentage,
-        Colors.RESET,
+        style.reset,
     });
 }
 
@@ -69,7 +69,7 @@ pub fn value(allocator: std.mem.Allocator, io: std.Io, environ_map: std.process.
     _ = io;
     _ = environ_map;
 
-    return format(allocator, try stat(allocator, "/"));
+    return format(allocator, try stat(allocator, "/"), .{});
 }
 
 // -- Tests --
@@ -77,10 +77,10 @@ pub fn value(allocator: std.mem.Allocator, io: std.Io, environ_map: std.process.
 test "format renders usage over total and the percentage" {
     const disk = DiskInfo{ .disk_size = 906.66, .disk_usage = 599.31, .disk_usage_percentage = 66 };
 
-    const result = try format(std.testing.allocator, disk);
+    const result = try format(std.testing.allocator, disk, .plain);
     defer std.testing.allocator.free(result);
 
-    try std.testing.expectEqualStrings("599.31 GiB / 906.66 GiB (\x1b[38;2;0;255;255m66%\x1b[0m)", result);
+    try std.testing.expectEqualStrings("599.31 GiB / 906.66 GiB (66%)", result);
 }
 
 test "stat reports a usage percentage between 0 and 100" {
