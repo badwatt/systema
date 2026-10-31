@@ -1,77 +1,111 @@
 {
-  description = "systema flake";
+  description = "systema - a neofetch-style system information tool";
 
-  inputs = {
-    zig2nix.url = "github:Cloudef/zig2nix";
-  };
+  inputs.zig2nix.url = "github:Cloudef/zig2nix";
 
   outputs =
-    { zig2nix, ... }:
+    { self, zig2nix, ... }:
     let
-      flake-utils = zig2nix.inputs.flake-utils;
-
+      # `minimum_zig_version` in build.zig.zon is the single source of truth for
+      # the toolchain, so this file never has to be bumped alongside it.
       zon = builtins.readFile ./build.zig.zon;
       zonFlat = builtins.replaceStrings [ "\n" "\r" ] [ " " " " ] zon;
-      zonVer = builtins.head (
-        builtins.match ".*\\.minimum_zig_version[[:space:]]*=[[:space:]]*\"([^\"]+)\".*" zonFlat
-      );
-      version = "zig-" + (builtins.replaceStrings [ "." ] [ "_" ] zonVer);
+      minZig = builtins.match ".*\\.minimum_zig_version[[:space:]]*=[[:space:]]*\"([^\"]+)\".*" zonFlat;
+      zigAttr =
+        if minZig == null then
+          throw "flake.nix: build.zig.zon does not declare minimum_zig_version"
+        else
+          "zig-" + builtins.replaceStrings [ "." ] [ "_" ] (builtins.head minZig);
     in
-    (flake-utils.lib.eachDefaultSystem (
+    zig2nix.inputs.flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (
       system:
       let
-        env = zig2nix.outputs.zig-env.${system} { zig = zig2nix.outputs.packages.${system}.${version}; };
-      in
-      with builtins;
-      with env.pkgs.lib;
-      rec {
-        packages.foreign = env.package (
-          {
-            src = cleanSource ./.;
+        # Without this the failure is "attribute 'zig-0_17_0' missing", which
+        # says nothing about what to do about it.
+        zig =
+          zig2nix.outputs.packages.${system}.${zigAttr}
+            or (throw "flake.nix: zig2nix has no ${zigAttr}; run `nix flake update zig2nix`");
 
-            nativeBuildInputs = with env.pkgs; [ ];
+        env = zig2nix.outputs.zig-env.${system} { inherit zig; };
+        lib = env.pkgs.lib;
 
-            buildInputs = with env.pkgs; [ ];
+        # Shared by every variant. pname and version come from build.zig.zon, so
+        # they are not repeated here.
+        base = {
+          src = self;
+          meta = {
+            description = "A neofetch-style system information tool";
+            homepage = "https://github.com/badwatt/systema";
+            mainProgram = "systema";
+            platforms = lib.platforms.linux;
+            # TODO: add `license` once the repository has a LICENSE file.
+          };
+        };
 
+        # Statically linked against musl: a single file, no runtime deps.
+        foreign = env.package (
+          base
+          // {
             zigPreferMusl = true;
-
             zigDisableWrap = true;
-          }
-          // optionalAttrs (!pathExists ./build.zig.zon) {
-            pname = "systema";
-            version = "0.0.0";
           }
         );
 
-        packages.default = packages.foreign.overrideAttrs (attrs: {
-          zigPreferMusl = false;
+        # Same build against the host libc, which is what NixOS wants.
+        default = env.package (
+          base
+          // {
+            zigPreferMusl = false;
+            zigDisableWrap = true;
+          }
+        );
 
-          zigWrapperBins = with env.pkgs; [ ];
-
-          zigWrapperLibs = with env.pkgs; [ ];
-        });
-
-        apps.bundle = {
+        appFor = pkg: {
           type = "app";
-          program = "${packages.foreign}/bin/default";
+          program = "${pkg}/bin/systema";
+          meta = pkg.meta;
+        };
+      in
+      {
+        packages = {
+          inherit default foreign;
         };
 
-        # nix run .
-        apps.default = env.app [ ] "zig build run --release=fast -- \"$@\"";
+        checks.default = default;
 
-        # nix run .#build
-        apps.build = env.app [ ] "zig build --release=fast \"$@\"";
+        formatter = env.pkgs.nixfmt;
 
-        # nix run .#test
-        apps.test = env.app [ ] "zig build test --release=fast -- \"$@\"";
-
-        # nix run .#zig2nix
-        apps.zig2nix = env.app [ ] "zig2nix \"$@\"";
-
-        # nix develop
-        devShells.default = env.mkShell {
-          nativeBuildInputs = with env.pkgs; [ ];
+        # Static binaries for other architectures: Zig cross-compiles them, so no
+        # binfmt registration or remote builder is involved.
+        legacyPackages.cross = {
+          x86_64-linux-musl = env.package (
+            base
+            // {
+              zigPreferMusl = true;
+              zigTarget = "x86_64-linux-musl";
+            }
+          );
+          aarch64-linux-musl = env.package (
+            base
+            // {
+              zigPreferMusl = true;
+              zigTarget = "aarch64-linux-musl";
+            }
+          );
         };
+
+        apps = {
+          # `nix run .` runs the packaged binary; `nix run .#dev` compiles and runs.
+          default = appFor default;
+          static = appFor foreign;
+          dev = env.app [ ] "zig build run --release=fast -- \"$@\"";
+          build = env.app [ ] "zig build --release=fast \"$@\"";
+          # No --release: the tests must keep runtime safety checks on.
+          test = env.app [ ] "zig build test -- \"$@\"";
+          zig2nix = env.app [ ] "zig2nix \"$@\"";
+        };
+
+        devShells.default = env.mkShell { };
       }
-    ));
+    );
 }
