@@ -1,5 +1,5 @@
 const std = @import("std");
-const root = @import("root");
+const Config = @import("config").Config;
 const Colors = @import("utils").colors;
 const username_mod = @import("username.zig");
 const hostname_mod = @import("hostname.zig");
@@ -49,7 +49,7 @@ pub fn init(self: *Self, allocator: std.mem.Allocator, io: std.Io, environ_map: 
     };
 }
 
-pub fn print(io: std.Io, environ_map: std.process.Environ.Map, config: *const root.Config, modules: Self) !void {
+pub fn print(io: std.Io, environ_map: std.process.Environ.Map, config: *const Config, modules: Self) !void {
     var stdout_buffer: [4096]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
     const out = &stdout_writer.interface;

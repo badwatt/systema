@@ -1,34 +1,10 @@
 const std = @import("std");
-const fmt = @import("utils").fmt;
 const Colors = @import("utils").colors;
 const Modules = @import("modules");
+const Config = @import("config").Config;
 const log = std.log.scoped(.main);
 const zon = @import("zon");
 const Cli = @import("cli");
-
-pub const Logo = struct {
-    enabled: bool = true,
-    embed: []const u8 = @embedFile("assets/logo"),
-    path: ?[]const u8 = null,
-    color: []const u8 = Colors.BLUE,
-    gap: u8 = 3,
-};
-
-pub const Icons = struct {
-    color: []const u8 = Colors.BLUE,
-};
-
-pub const Labels = struct {
-    color: []const u8 = Colors.BLUE,
-};
-
-pub const Config = struct {
-    name: []const u8,
-    version: []const u8,
-    logo: Logo = Logo{},
-    icons: Icons = Icons{},
-    labels: Labels = Labels{},
-};
 
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;

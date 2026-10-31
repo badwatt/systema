@@ -1,5 +1,5 @@
 const std = @import("std");
-const Config = @import("root").Config;
+const Config = @import("config").Config;
 const utils = @import("utils");
 const fmt = utils.fmt;
 const Colors = utils.colors;

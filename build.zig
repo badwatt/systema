@@ -13,12 +13,22 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const config_mod = b.createModule(.{
+        .root_source_file = b.path("src/config.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "utils", .module = utils_mod },
+        },
+    });
+
     const cli_mod = b.createModule(.{
         .root_source_file = b.path("src/cli/mod.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
             .{ .name = "utils", .module = utils_mod },
+            .{ .name = "config", .module = config_mod },
         },
     });
 
@@ -30,6 +40,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = target.result.os.tag == .linux,
         .imports = &.{
             .{ .name = "utils", .module = utils_mod },
+            .{ .name = "config", .module = config_mod },
         },
     });
 
@@ -46,6 +57,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "cli", .module = cli_mod },
             .{ .name = "modules", .module = modules_mod },
+            .{ .name = "config", .module = config_mod },
             .{ .name = "utils", .module = utils_mod },
             .{ .name = "zon", .module = zon_mod },
         },
