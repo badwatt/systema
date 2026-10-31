@@ -28,7 +28,3 @@ pub fn main(init: std.process.Init) !void {
     const modules = try Modules.init(allocator, io, init.environ_map.*);
     try render.print(allocator, io, init.environ_map.*, &config, modules);
 }
-
-test "sanity check: test runner works" {
-    try std.testing.expect(true);
-}

@@ -94,7 +94,9 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run tests");
 
-    for ([_]*std.Build.Module{ style_mod, cli_mod, modules_mod, render_mod, app_mod }) |test_root| {
+    // One test binary per layer, so a file's tests only run when the layer it
+    // belongs to is exercised.
+    for ([_]*std.Build.Module{ style_mod, config_mod, cli_mod, modules_mod, render_mod }) |test_root| {
         test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = test_root })).step);
     }
 }
