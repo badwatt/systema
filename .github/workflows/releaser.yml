@@ -2,7 +2,9 @@ name: releaser
 
 on:
   push:
-    branches: [main]
+    # `zig` is the default branch of this repository; `main` is kept for when
+    # the branch is renamed back.
+    branches: [main, zig]
 
 jobs:
   tag:
