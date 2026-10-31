@@ -41,8 +41,11 @@ pub fn parseFromReader(allocator: std.mem.Allocator, reader: anytype) ![]const u
     return formatUptime(allocator, uptime);
 }
 
-pub fn getUptimeInfo(allocator: std.mem.Allocator, io: std.Io) ![]const u8 {
-    const file = std.Io.Dir.openFileAbsolute(io, "/proc/uptime", .{}) catch return allocator.dupe(u8, "0 seconds");
+/// Reads /proc/uptime and formats it, e.g. "3 days 4 hours 19 minutes 45 seconds".
+pub fn value(allocator: std.mem.Allocator, io: std.Io, environ_map: std.process.Environ.Map) ![]const u8 {
+    _ = environ_map;
+
+    const file = try std.Io.Dir.openFileAbsolute(io, "/proc/uptime", .{});
     defer file.close(io);
 
     var file_buffer: [4096]u8 = undefined;
@@ -101,7 +104,7 @@ test "calcUptime: 0 seconds" {
     try std.testing.expectEqual(@as(i64, 0), u.seconds);
 }
 
-test "end-to-end: getUptimeInfo reads mock /proc/uptime file" {
+test "end-to-end: parseFromReader over a real file" {
     const tmp_path = "/tmp/systema_test_uptime.txt";
     {
         const file = try std.Io.Dir.createFileAbsolute(std.testing.io, tmp_path, .{});

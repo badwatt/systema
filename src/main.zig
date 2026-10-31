@@ -1,6 +1,7 @@
 const std = @import("std");
 const Colors = @import("style");
 const Modules = @import("modules");
+const render = @import("render");
 const Config = @import("config").Config;
 const log = std.log.scoped(.main);
 const zon = @import("zon");
@@ -20,12 +21,12 @@ pub fn main(init: std.process.Init) !void {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
 
-    try cli.parse(arena.allocator(), io, &config, init.minimal.args);
+    const allocator = arena.allocator();
 
-    var modules: Modules = undefined;
-    try modules.init(arena.allocator(), io, init.environ_map.*);
+    try cli.parse(allocator, io, &config, init.minimal.args);
 
-    try Modules.print(io, init.environ_map.*, &config, modules);
+    const modules = try Modules.init(allocator, io, init.environ_map.*);
+    try render.print(allocator, io, init.environ_map.*, &config, modules);
 }
 
 test "sanity check: test runner works" {

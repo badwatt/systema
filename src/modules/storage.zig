@@ -2,7 +2,6 @@ const std = @import("std");
 const Colors = @import("style");
 
 pub const DiskInfo = struct {
-    disk_path: []const u8,
     disk_size: f64,
     disk_usage: f64,
     disk_usage_percentage: u8,
@@ -35,35 +34,57 @@ comptime {
         @compileError("struct_statvfs does not match the LP64 statvfs ABI; 32-bit targets need their own layout");
 }
 
-pub fn getStorage(allocator: std.mem.Allocator, disk_path: []const u8) ![]const u8 {
-    var stat: struct_statvfs = undefined;
+/// Usage of the filesystem mounted at `disk_path`.
+pub fn stat(allocator: std.mem.Allocator, disk_path: []const u8) !DiskInfo {
+    var vfs: struct_statvfs = undefined;
 
     const path_z = try allocator.dupeSentinel(u8, disk_path, 0);
     defer allocator.free(path_z);
 
-    if (statvfs(path_z, &stat) != 0) {
-        return error.StatvfsFailed;
-    }
+    if (statvfs(path_z, &vfs) != 0) return error.StatvfsFailed;
 
-    const block_size = stat.f_bsize;
-    const total_blocks = stat.f_blocks;
-    const available_blocks = stat.f_bavail;
-    const total_size = total_blocks * block_size;
-    const used_size = total_size - (available_blocks * block_size);
+    const block_size = vfs.f_bsize;
+    const total_size = vfs.f_blocks * block_size;
+    const used_size = total_size - (vfs.f_bavail * block_size);
     const used_size_percentage = if (total_size > 0) (used_size * 100) / total_size else 0;
 
-    const disk_info = DiskInfo{
-        .disk_path = disk_path,
+    return .{
         .disk_size = @as(f64, @floatFromInt(total_size)) / GB,
         .disk_usage = @as(f64, @floatFromInt(used_size)) / GB,
         .disk_usage_percentage = @as(u8, @intCast(used_size_percentage)),
     };
+}
 
+pub fn format(allocator: std.mem.Allocator, disk: DiskInfo) ![]const u8 {
     return std.fmt.allocPrint(allocator, "{d:.2} GiB / {d:.2} GiB ({s}{d}%{s})", .{
-        disk_info.disk_usage,
-        disk_info.disk_size,
+        disk.disk_usage,
+        disk.disk_size,
         Colors.CYAN,
-        disk_info.disk_usage_percentage,
+        disk.disk_usage_percentage,
         Colors.RESET,
     });
+}
+
+pub fn value(allocator: std.mem.Allocator, io: std.Io, environ_map: std.process.Environ.Map) ![]const u8 {
+    _ = io;
+    _ = environ_map;
+
+    return format(allocator, try stat(allocator, "/"));
+}
+
+// -- Tests --
+
+test "format renders usage over total and the percentage" {
+    const disk = DiskInfo{ .disk_size = 906.66, .disk_usage = 599.31, .disk_usage_percentage = 66 };
+
+    const result = try format(std.testing.allocator, disk);
+    defer std.testing.allocator.free(result);
+
+    try std.testing.expectEqualStrings("599.31 GiB / 906.66 GiB (\x1b[38;2;0;255;255m66%\x1b[0m)", result);
+}
+
+test "stat reports a usage percentage between 0 and 100" {
+    const disk = try stat(std.testing.allocator, "/");
+    try std.testing.expect(disk.disk_usage_percentage <= 100);
+    try std.testing.expect(disk.disk_size > 0);
 }

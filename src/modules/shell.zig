@@ -1,15 +1,35 @@
 const std = @import("std");
 
-pub fn getShell(allocator: std.mem.Allocator, environ_map: std.process.Environ.Map) ![]const u8 {
-    if (environ_map.get("SHELL")) |shell_path| {
-        var shell_it = std.mem.tokenizeScalar(u8, shell_path, '/');
-        var shell: []const u8 = undefined;
-        while (shell_it.next()) |split| {
-            shell = split;
-        }
+/// Basename of `$SHELL`, e.g. "zsh".
+pub fn value(allocator: std.mem.Allocator, io: std.Io, environ_map: std.process.Environ.Map) ![]const u8 {
+    _ = io;
 
-        return try allocator.dupe(u8, shell);
-    }
+    const shell_path = environ_map.get("SHELL") orelse return error.ShellNotSet;
+    return allocator.dupe(u8, std.fs.path.basename(shell_path));
+}
 
-    return "Unknown";
+// -- Tests --
+
+fn testEnv(shell: []const u8) !std.process.Environ.Map {
+    var environ_map = std.process.Environ.Map.init(std.testing.allocator);
+    errdefer environ_map.deinit();
+    try environ_map.put("SHELL", shell);
+    return environ_map;
+}
+
+test "value strips the directory from $SHELL" {
+    var environ_map = try testEnv("/usr/bin/zsh");
+    defer environ_map.deinit();
+
+    const shell = try value(std.testing.allocator, std.testing.io, environ_map);
+    defer std.testing.allocator.free(shell);
+
+    try std.testing.expectEqualStrings("zsh", shell);
+}
+
+test "value fails when $SHELL is unset" {
+    var environ_map = std.process.Environ.Map.init(std.testing.allocator);
+    defer environ_map.deinit();
+
+    try std.testing.expectError(error.ShellNotSet, value(std.testing.allocator, std.testing.io, environ_map));
 }
