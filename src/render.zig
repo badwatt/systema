@@ -314,6 +314,28 @@ test "loadLogo expands a leading ~/ from $HOME" {
     try std.testing.expectEqualStrings("Z\n", logo);
 }
 
+test "loadLogo falls back to the embedded asset for an oversized file" {
+    defer std.Io.Dir.deleteFileAbsolute(std.testing.io, logo_path) catch {};
+
+    const file = try std.Io.Dir.createFileAbsolute(std.testing.io, logo_path, .{});
+    {
+        defer file.close(std.testing.io);
+        var writer = file.writer(std.testing.io, &.{});
+        const chunk = @as([1024 * 1024]u8, @splat('x'));
+        try writer.interface.writeAll(&chunk);
+        try writer.interface.writeAll("overflow");
+        try writer.interface.flush();
+    }
+
+    var environ_map = try testEnviron();
+    defer environ_map.deinit();
+
+    var config = Config{ .name = "systema", .version = "1.0.0", .logo = .{ .path = logo_path } };
+
+    const logo = try loadLogo(std.testing.allocator, std.testing.io, environ_map, &config);
+    try std.testing.expectEqualStrings(config.logo.embed, logo);
+}
+
 test "loadLogo falls back to the embedded asset for an unreadable path" {
     var environ_map = try testEnviron();
     defer environ_map.deinit();
