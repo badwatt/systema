@@ -5,21 +5,11 @@ const Colors = @import("style");
 const help_mod = @import("help.zig");
 const version_mod = @import("version.zig");
 
-const Self = @This();
-
-allocator: std.mem.Allocator,
-io: std.Io,
-config: *Config,
-
-pub fn init(self: *Self, allocator: std.mem.Allocator, io: std.Io, config: *Config, args: std.process.Args) !void {
-    self.* = .{
-        .allocator = allocator,
-        .io = io,
-        .config = config,
-    };
-
+/// Parses `args` and applies the recognised options to `config`. Prints and
+/// exits for `--help` and `--version`.
+pub fn parse(allocator: std.mem.Allocator, io: std.Io, config: *Config, args: std.process.Args) !void {
     var args_iter = std.process.Args.iterate(args);
-    _ = args_iter.next(); // skip binary
+    _ = args_iter.next(); // skip the binary name
     while (args_iter.next()) |arg| {
         var split = std.mem.splitScalar(u8, arg[2..], '=');
         const opt = split.first();
@@ -27,35 +17,32 @@ pub fn init(self: *Self, allocator: std.mem.Allocator, io: std.Io, config: *Conf
 
         switch (optKind(arg)) {
             .short => {
-                const str = arg[1..];
-                for (str) |b| {
-                    switch (b) {
-                        'h' => try help_mod.getHelp(self),
-                        'v' => try version_mod.getVersion(self),
-                        else => {
-                            try fmt.stderr(self.io, "Invalid opt: '{c}'\n", .{b});
-                            std.process.exit(1);
-                        },
-                    }
-                }
+                for (arg[1..]) |b| switch (b) {
+                    'h' => try help_mod.getHelp(allocator, io, config),
+                    'v' => try version_mod.getVersion(allocator, io, config),
+                    else => {
+                        try fmt.stderr(io, "Invalid opt: '{c}'\n", .{b});
+                        std.process.exit(1);
+                    },
+                };
             },
             .long => {
                 if (eql(opt, "help")) {
-                    try help_mod.getHelp(self);
+                    try help_mod.getHelp(allocator, io, config);
                 } else if (eql(opt, "version")) {
-                    try version_mod.getVersion(self);
+                    try version_mod.getVersion(allocator, io, config);
                 } else if (eql(opt, "logo-path")) {
                     config.logo.path = val;
                 } else if (eql(opt, "logo-color")) {
-                    config.logo.color = Colors.hex(self.allocator, val) catch config.logo.color;
+                    config.logo.color = Colors.hex(allocator, val) catch config.logo.color;
                 } else if (eql(opt, "logo-gap")) {
                     config.logo.gap = std.fmt.parseInt(u8, val, 10) catch config.logo.gap;
                 } else if (eql(opt, "icons-color")) {
-                    config.icons.color = Colors.hex(self.allocator, val) catch config.icons.color;
+                    config.icons.color = Colors.hex(allocator, val) catch config.icons.color;
                 } else if (eql(opt, "labels-color")) {
-                    config.labels.color = Colors.hex(self.allocator, val) catch config.labels.color;
+                    config.labels.color = Colors.hex(allocator, val) catch config.labels.color;
                 } else {
-                    try fmt.stderr(self.io, "Invalid opt: '{s}'\n", .{opt});
+                    try fmt.stderr(io, "Invalid opt: '{s}'\n", .{opt});
                     std.process.exit(1);
                 }
             },

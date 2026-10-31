@@ -1,12 +1,12 @@
 const std = @import("std");
-const Cli = @import("mod.zig");
+const Config = @import("config").Config;
 const Colors = @import("style");
 const fmt = @import("fmt.zig");
 
-pub fn getVersion(self: *Cli) !void {
-    const help = try text(self.allocator, self.config.name, self.config.version);
+pub fn getVersion(allocator: std.mem.Allocator, io: std.Io, config: *const Config) !noreturn {
+    const help = try text(allocator, config.name, config.version);
 
-    try fmt.stdout(self.io, "{s}\n", .{help});
+    try fmt.stdout(io, "{s}\n", .{help});
 
     std.process.exit(0);
 }

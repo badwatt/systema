@@ -1,11 +1,11 @@
 const std = @import("std");
+const Config = @import("config").Config;
 const fmt = @import("fmt.zig");
-const Cli = @import("mod.zig");
 
-pub fn getHelp(self: *Cli) !void {
-    const help = try text(self.allocator, self.config.name);
+pub fn getHelp(allocator: std.mem.Allocator, io: std.Io, config: *const Config) !noreturn {
+    const help = try text(allocator, config.name);
 
-    try fmt.stdout(self.io, "{s}\n", .{help});
+    try fmt.stdout(io, "{s}\n", .{help});
 
     std.process.exit(0);
 }
