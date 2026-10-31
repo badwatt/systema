@@ -1,6 +1,5 @@
 const std = @import("std");
 const root = @import("root");
-const fmt = @import("utils").fmt;
 const Colors = @import("utils").colors;
 const username_mod = @import("username.zig");
 const hostname_mod = @import("hostname.zig");
@@ -50,11 +49,11 @@ pub fn init(self: *Self, allocator: std.mem.Allocator, io: std.Io, environ_map: 
     };
 }
 
-pub fn deinit(self: *Self) void {
-    _ = self;
-}
-
 pub fn print(io: std.Io, environ_map: std.process.Environ.Map, config: *const root.Config, modules: Self) !void {
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+    const out = &stdout_writer.interface;
+
     var info_lines: std.ArrayList([]const u8) = .empty;
     defer info_lines.deinit(modules.allocator);
 
@@ -62,23 +61,21 @@ pub fn print(io: std.Io, environ_map: std.process.Environ.Map, config: *const ro
         Colors.YELLOW, modules.username, Colors.RED, Colors.GREEN, modules.hostname, Colors.RESET,
     }));
 
-    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}  {s}System{s}         {s}", .{ config.icons.color, config.labels.color, Colors.RESET, modules.system }));
-    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}  {s}Kernel{s}         {s}", .{ config.icons.color, config.labels.color, Colors.RESET, modules.kernel }));
-    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}  {s}Desktop{s}        {s}", .{ config.icons.color, config.labels.color, Colors.RESET, modules.desktop }));
-    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}  {s}CPU{s}            {s}", .{ config.icons.color, config.labels.color, Colors.RESET, modules.cpu }));
-    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}  {s}Shell{s}          {s}", .{ config.icons.color, config.labels.color, Colors.RESET, modules.shell }));
-    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}  {s}Uptime{s}         {s}", .{ config.icons.color, config.labels.color, Colors.RESET, modules.uptime }));
-    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}  {s}Memory{s}         {s}", .{ config.icons.color, config.labels.color, Colors.RESET, modules.memory }));
-    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}󱥎  {s}Storage (/){s}    {s}", .{ config.icons.color, config.labels.color, Colors.RESET, modules.storage }));
-    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}  {s}Colors{s}         {s}", .{ config.icons.color, config.labels.color, Colors.RESET, modules.colors }));
+    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}  {s}{s:<14}{s} {s}", .{ config.icons.color, config.labels.color, "System", Colors.RESET, modules.system }));
+    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}  {s}{s:<14}{s} {s}", .{ config.icons.color, config.labels.color, "Kernel", Colors.RESET, modules.kernel }));
+    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}  {s}{s:<14}{s} {s}", .{ config.icons.color, config.labels.color, "Desktop", Colors.RESET, modules.desktop }));
+    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}  {s}{s:<14}{s} {s}", .{ config.icons.color, config.labels.color, "CPU", Colors.RESET, modules.cpu }));
+    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}  {s}{s:<14}{s} {s}", .{ config.icons.color, config.labels.color, "Shell", Colors.RESET, modules.shell }));
+    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}  {s}{s:<14}{s} {s}", .{ config.icons.color, config.labels.color, "Uptime", Colors.RESET, modules.uptime }));
+    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}  {s}{s:<14}{s} {s}", .{ config.icons.color, config.labels.color, "Memory", Colors.RESET, modules.memory }));
+    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}󱥎  {s}{s:<14}{s} {s}", .{ config.icons.color, config.labels.color, "Storage (/)", Colors.RESET, modules.storage }));
+    try info_lines.append(modules.allocator, try std.fmt.allocPrint(modules.allocator, "{s}  {s}{s:<14}{s} {s}", .{ config.icons.color, config.labels.color, "Colors", Colors.RESET, modules.colors }));
 
-    try fmt.stdout(io, "\n", .{});
+    try out.print("\n", .{});
 
     if (config.logo.enabled) {
         var logo_list: std.ArrayList([]const u8) = .empty;
         defer logo_list.deinit(modules.allocator);
-
-        var file_content: ?[]u8 = null;
 
         var logo_content = config.logo.embed;
         if (config.logo.path) |p| {
@@ -100,7 +97,6 @@ pub fn print(io: std.Io, environ_map: std.process.Environ.Map, config: *const ro
                 var file_buffer: [4096]u8 = undefined;
                 var reader = file.reader(io, &file_buffer);
                 if (reader.interface.allocRemaining(modules.allocator, .limited(std.math.maxInt(usize)))) |content| {
-                    file_content = content;
                     logo_content = content;
                 } else |_| {}
             } else |_| {}
@@ -125,30 +121,39 @@ pub fn print(io: std.Io, environ_map: std.process.Environ.Map, config: *const ro
         const max_lines = @max(logo.len, info_lines.items.len);
         for (0..max_lines) |i| {
             if (i < logo.len) {
-                try fmt.stdout(io, "{s}{s}{s}", .{ config.logo.color, logo[i], Colors.RESET });
+                try out.print("{s}{s}{s}", .{ config.logo.color, logo[i], Colors.RESET });
                 const width = std.unicode.utf8CountCodepoints(logo[i]) catch logo[i].len;
                 const padding = logo_width - width + gap;
-                for (0..padding) |_| try fmt.stdout(io, " ", .{});
+                try out.splatByteAll(' ', padding);
             } else {
                 const padding = logo_width + gap;
-                for (0..padding) |_| try fmt.stdout(io, " ", .{});
+                try out.splatByteAll(' ', padding);
             }
 
             if (i < info_lines.items.len) {
-                try fmt.stdout(io, "{s}", .{info_lines.items[i]});
+                try out.print("{s}", .{info_lines.items[i]});
             }
-            try fmt.stdout(io, "\n", .{});
+            try out.print("\n", .{});
         }
     } else {
         for (info_lines.items) |line| {
-            try fmt.stdout(io, "{s}\n", .{line});
+            try out.print("{s}\n", .{line});
         }
     }
 
-    try fmt.stdout(io, "\n", .{});
+    try out.print("\n", .{});
+    try out.flush();
 }
 
 // -- Tests --
+
+fn testEnv(entries: []const [2][]const u8) !std.process.Environ.Map {
+    var environ_map = std.process.Environ.Map.init(std.testing.allocator);
+    errdefer environ_map.deinit();
+
+    for (entries) |entry| try environ_map.put(entry[0], entry[1]);
+    return environ_map;
+}
 
 test "parseMeminfoData: valid /proc/meminfo" {
     const data =
@@ -164,25 +169,18 @@ test "parseMeminfoData: valid /proc/meminfo" {
     try std.testing.expect(meminfo.used_percent > 0);
 }
 
-test "format memory string" {
-    try std.testing.expect(@as(f64, 4.0) == @as(f64, 4.0));
-    try std.testing.expect(@as(f64, 16.0) == @as(f64, 16.0));
+test "parseMeminfoData: empty input yields zeroes instead of NaN" {
+    const meminfo = memory_mod.parseMeminfoData("");
+    try std.testing.expectEqual(@as(f64, 0), meminfo.total);
+    try std.testing.expectEqual(@as(f64, 0), meminfo.used_percent);
 }
 
-test "calcUptime: 90061 seconds = 1 day 1 hour 1 minute 1 second" {
-    const u = uptime_mod.calcUptime(90061);
-    try std.testing.expectEqual(@as(i64, 1), u.days);
-    try std.testing.expectEqual(@as(i64, 1), u.hours);
-    try std.testing.expectEqual(@as(i64, 1), u.minutes);
-    try std.testing.expectEqual(@as(i64, 1), u.seconds);
-}
+test "getMemoryInfo reports used and total in GiB" {
+    const result = try memory_mod.getMemoryInfo(std.testing.allocator, std.testing.io);
+    defer std.testing.allocator.free(result);
 
-test "calcUptime: 0 seconds" {
-    const u = uptime_mod.calcUptime(0);
-    try std.testing.expectEqual(@as(i64, 0), u.days);
-    try std.testing.expectEqual(@as(i64, 0), u.hours);
-    try std.testing.expectEqual(@as(i64, 0), u.minutes);
-    try std.testing.expectEqual(@as(i64, 0), u.seconds);
+    try std.testing.expect(std.mem.indexOf(u8, result, " GiB / ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, " GiB (") != null);
 }
 
 test "getHostname returns valid slice" {
@@ -203,31 +201,82 @@ test "getColors produces non-empty string" {
     try std.testing.expect(result.len > 0);
 }
 
-test "getShell extracts basename from path" {
-    var shell_it = std.mem.tokenizeScalar(u8, "/usr/bin/zsh", '/');
-    var shell: []const u8 = undefined;
-    while (shell_it.next()) |split| {
-        shell = split;
-    }
+test "getShell strips the directory from $SHELL" {
+    var environ_map = try testEnv(&.{
+        .{ "SHELL", "/usr/bin/zsh" },
+        .{ "USER", "alice" },
+    });
+    defer environ_map.deinit();
+
+    const shell = try shell_mod.getShell(std.testing.allocator, environ_map);
+    defer std.testing.allocator.free(shell);
+
     try std.testing.expectEqualStrings("zsh", shell);
 }
 
-test "getDesktop format with mock data" {
-    const result = try std.fmt.allocPrint(std.testing.allocator, "{s} ({s})", .{ "GNOME", "wayland" });
+test "getShell falls back when $SHELL is unset" {
+    var environ_map = try testEnv(&.{});
+    defer environ_map.deinit();
+
+    try std.testing.expectEqualStrings("Unknown", try shell_mod.getShell(std.testing.allocator, environ_map));
+}
+
+test "getUsername reads $USER and falls back when unset" {
+    var environ_map = try testEnv(&.{.{ "USER", "alice" }});
+    defer environ_map.deinit();
+    try std.testing.expectEqualStrings("alice", username_mod.getUsername(environ_map));
+
+    var empty = try testEnv(&.{});
+    defer empty.deinit();
+    try std.testing.expectEqualStrings("NO_USER_NAME_FOUND", username_mod.getUsername(empty));
+}
+
+test "getDesktop combines the XDG environment variables" {
+    var environ_map = try testEnv(&.{
+        .{ "XDG_CURRENT_DESKTOP", "GNOME" },
+        .{ "XDG_SESSION_TYPE", "wayland" },
+    });
+    defer environ_map.deinit();
+
+    const desktop = try desktop_mod.getDesktop(std.testing.allocator, environ_map);
+    defer std.testing.allocator.free(desktop);
+
+    try std.testing.expectEqualStrings("GNOME (wayland)", desktop);
+}
+
+test "getDesktop falls back when the XDG variables are unset" {
+    var environ_map = try testEnv(&.{});
+    defer environ_map.deinit();
+
+    const desktop = try desktop_mod.getDesktop(std.testing.allocator, environ_map);
+    defer std.testing.allocator.free(desktop);
+
+    try std.testing.expectEqualStrings("Unknown (Unknown)", desktop);
+}
+
+test "getSystemInfo returns an unquoted PRETTY_NAME" {
+    const result = system_mod.getSystemInfo(std.testing.allocator, std.testing.io);
+    if (std.mem.eql(u8, result, "Unknown")) return; // /etc/os-release is not guaranteed
     defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("GNOME (wayland)", result);
+
+    try std.testing.expect(result.len > 0);
+    try std.testing.expect(std.mem.indexOfScalar(u8, result, '"') == null);
 }
 
-test "getUsername fallback" {
-    try std.testing.expectEqualStrings("NO_USER_NAME_FOUND", "NO_USER_NAME_FOUND");
+test "getCpuInfo is non-empty" {
+    const result = cpu_mod.getCpuInfo(std.testing.allocator, std.testing.io);
+    if (std.mem.eql(u8, result, "Unknown")) return; // /proc/cpuinfo is not guaranteed
+    defer std.testing.allocator.free(result);
+
+    try std.testing.expect(result.len > 0);
 }
 
-test "system info string trimming" {
-    const raw = "\"Ubuntu 24.04 LTS\"";
-    const trimmed = std.mem.trim(u8, raw, "\"");
-    try std.testing.expectEqualStrings("Ubuntu 24.04 LTS", trimmed);
-}
+// NOTE: this test also keeps `uptime.zig` reachable from the test root. Zig only
+// collects test blocks from files that get analyzed, so dropping it silently drops
+// every test declared in uptime.zig from the test binary.
+test "getUptimeInfo returns a formatted duration" {
+    const result = try uptime_mod.getUptimeInfo(std.testing.allocator, std.testing.io);
+    defer std.testing.allocator.free(result);
 
-test "cpu fallback string" {
-    try std.testing.expectEqualStrings("Unknown", "Unknown");
+    try std.testing.expect(result.len > 0);
 }

@@ -27,10 +27,18 @@ const struct_statvfs = extern struct {
 
 extern "c" fn statvfs(path: [*:0]const u8, buf: *struct_statvfs) c_int;
 
+comptime {
+    // Mirrors the LP64 glibc/musl `struct statvfs`. On any other ABI the layout is
+    // different, and passing this (too small) struct to statvfs(3) would corrupt the
+    // stack, so refuse to compile instead.
+    if (@sizeOf(struct_statvfs) != 112)
+        @compileError("struct_statvfs does not match the LP64 statvfs ABI; 32-bit targets need their own layout");
+}
+
 pub fn getStorage(allocator: std.mem.Allocator, disk_path: []const u8) ![]const u8 {
     var stat: struct_statvfs = undefined;
 
-    const path_z = try allocator.dupeZ(u8, disk_path);
+    const path_z = try allocator.dupeSentinel(u8, disk_path, 0);
     defer allocator.free(path_z);
 
     if (statvfs(path_z, &stat) != 0) {
@@ -42,7 +50,7 @@ pub fn getStorage(allocator: std.mem.Allocator, disk_path: []const u8) ![]const 
     const available_blocks = stat.f_bavail;
     const total_size = total_blocks * block_size;
     const used_size = total_size - (available_blocks * block_size);
-    const used_size_percentage = (used_size * 100) / total_size;
+    const used_size_percentage = if (total_size > 0) (used_size * 100) / total_size else 0;
 
     const disk_info = DiskInfo{
         .disk_path = disk_path,

@@ -3,7 +3,16 @@ const fmt = @import("utils").fmt;
 const Cli = @import("mod.zig");
 
 pub fn getHelp(self: *Cli) !void {
-    const help = try std.fmt.allocPrint(self.allocator,
+    const help = try text(self.allocator, self.config.name);
+
+    try fmt.stdout(self.io, "{s}\n", .{help});
+
+    std.process.exit(0);
+}
+
+/// Builds the help message. Kept separate from `getHelp` so it can be tested.
+pub fn text(allocator: std.mem.Allocator, name: []const u8) ![]const u8 {
+    return std.fmt.allocPrint(allocator,
         \\
         \\Usage:
         \\  {s} [options] [path...]
@@ -17,9 +26,5 @@ pub fn getHelp(self: *Cli) !void {
         \\ --icons-color=<color>                 Color of the icons
         \\ --labels-color=<color>                Color of the labels
         \\
-    , .{self.config.name});
-
-    try fmt.stdout(self.io, "{s}\n", .{help});
-
-    std.process.exit(0);
+    , .{name});
 }

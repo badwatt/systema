@@ -26,6 +26,8 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/modules/mod.zig"),
         .target = target,
         .optimize = optimize,
+        // storage.zig calls statvfs(3) through libc.
+        .link_libc = target.result.os.tag == .linux,
         .imports = &.{
             .{ .name = "utils", .module = utils_mod },
         },
@@ -37,25 +39,23 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const app_mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "cli", .module = cli_mod },
+            .{ .name = "modules", .module = modules_mod },
+            .{ .name = "utils", .module = utils_mod },
+            .{ .name = "zon", .module = zon_mod },
+        },
+    });
+
     const exe = b.addExecutable(.{
         .name = "systema",
         .version = version,
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "cli", .module = cli_mod },
-                .{ .name = "modules", .module = modules_mod },
-                .{ .name = "utils", .module = utils_mod },
-                .{ .name = "zon", .module = zon_mod },
-            },
-        }),
+        .root_module = app_mod,
     });
-
-    if (target.result.os.tag == .linux) {
-        exe.root_module.link_libc = true;
-    }
 
     b.installArtifact(exe);
 
@@ -66,23 +66,11 @@ pub fn build(b: *std.Build) void {
 
     run_cmd.step.dependOn(b.getInstallStep());
 
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    run_cmd.addPassthruArgs();
 
     const test_step = b.step("test", "Run tests");
 
-    const zig_exe = b.graph.zig_exe;
-
-    const test_utils = b.addSystemCommand(&.{ zig_exe, "test", "-Mroot=src/utils/mod.zig" });
-    test_step.dependOn(&test_utils.step);
-
-    const test_cli = b.addSystemCommand(&.{ zig_exe, "test", "--dep", "utils", "-Mroot=src/cli/mod.zig", "-Mutils=src/utils/mod.zig" });
-    test_step.dependOn(&test_cli.step);
-
-    const test_modules = b.addSystemCommand(&.{ zig_exe, "test", "--dep", "utils", "-Mroot=src/modules/mod.zig", "-Mutils=src/utils/mod.zig", "-lc" });
-    test_step.dependOn(&test_modules.step);
-
-    const test_main = b.addSystemCommand(&.{ zig_exe, "test", "--dep", "cli", "--dep", "modules", "--dep", "utils", "--dep", "zon", "-Mroot=src/main.zig", "-Mcli=src/cli/mod.zig", "-Mmodules=src/modules/mod.zig", "-Mutils=src/utils/mod.zig", "-Mzon=build.zig.zon", "-lc" });
-    test_step.dependOn(&test_main.step);
+    for ([_]*std.Build.Module{ utils_mod, cli_mod, modules_mod, app_mod }) |test_root| {
+        test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = test_root })).step);
+    }
 }

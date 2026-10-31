@@ -1,88 +1,64 @@
 const std = @import("std");
 const Colors = @import("utils").colors;
 
-const Memory = struct {
-    total: f64,
-    available: f64,
-    used: f64,
-    used_percent: f64,
+pub const Memory = struct {
+    total: f64 = 0,
+    available: f64 = 0,
+    used: f64 = 0,
+    used_percent: f64 = 0,
 };
 
-fn parseMeminfo(io: std.Io, memory: *Memory) !void {
+/// Parses a single `/proc/meminfo` line such as "MemTotal:       16384000 kB".
+fn parseLine(memory: *Memory, line: []const u8) void {
+    if (std.mem.startsWith(u8, line, "MemTotal:")) {
+        memory.total = parseMeminfoValue(line) orelse return;
+    } else if (std.mem.startsWith(u8, line, "MemAvailable:")) {
+        memory.available = parseMeminfoValue(line) orelse return;
+    }
+}
+
+/// Returns the value of a `/proc/meminfo` line converted from kB to GiB.
+fn parseMeminfoValue(line: []const u8) ?f64 {
+    var value_it = std.mem.tokenizeScalar(u8, line, ':');
+    _ = value_it.next();
+    const value = value_it.next() orelse return null;
+    const kb = std.fmt.parseFloat(f64, std.mem.trim(u8, value, "kB \t")) catch return null;
+    return kb / 1024.0 / 1024.0;
+}
+
+fn finalize(memory: *Memory) void {
+    memory.used = memory.total - memory.available;
+    memory.used_percent = if (memory.total > 0) (memory.used / memory.total) * 100 else 0;
+}
+
+/// Pure parser used by tests and by `readMeminfo`.
+pub fn parseMeminfoData(data: []const u8) Memory {
+    var memory = Memory{};
+    var line_iter = std.mem.splitScalar(u8, data, '\n');
+    while (line_iter.next()) |line| parseLine(&memory, line);
+    finalize(&memory);
+    return memory;
+}
+
+fn readMeminfo(io: std.Io) !Memory {
     const file = try std.Io.Dir.openFileAbsolute(io, "/proc/meminfo", .{});
     defer file.close(io);
 
     var file_buffer: [4096]u8 = undefined;
     var reader = file.reader(io, &file_buffer);
 
-    while (try reader.interface.takeDelimiter('\n')) |line| {
-        if (std.mem.startsWith(u8, line, "MemTotal:")) {
-            var value_it = std.mem.tokenizeScalar(u8, line, ':');
-            _ = value_it.next();
-            const value = value_it.next() orelse continue;
-            const trimmed_value = std.mem.trim(u8, value, "kB \t");
-            const total_kb = std.fmt.parseFloat(f64, trimmed_value) catch continue;
-            memory.total = total_kb / 1024.0 / 1024.0;
-        } else if (std.mem.startsWith(u8, line, "MemAvailable:")) {
-            var value_it = std.mem.tokenizeScalar(u8, line, ':');
-            _ = value_it.next();
-            const value = value_it.next() orelse continue;
-            const trimmed_value = std.mem.trim(u8, value, "kB \t");
-            const available_kb = std.fmt.parseFloat(f64, trimmed_value) catch continue;
-            memory.available = available_kb / 1024.0 / 1024.0;
-        }
-    }
-
-    memory.used = memory.total - memory.available;
-    memory.used_percent = if (memory.total > 0) (memory.used / memory.total) * 100 else 0;
+    var memory = Memory{};
+    while (try reader.interface.takeDelimiter('\n')) |line| parseLine(&memory, line);
+    finalize(&memory);
+    return memory;
 }
 
 pub fn getMemoryInfo(allocator: std.mem.Allocator, io: std.Io) ![]const u8 {
-    var meminfo = Memory{
-        .total = 0,
-        .available = 0,
-        .used = 0,
-        .used_percent = 0,
-    };
-
-    try parseMeminfo(io, &meminfo);
+    const meminfo = try readMeminfo(io);
 
     return std.fmt.allocPrint(
         allocator,
         "{d:.2} GiB / {d:.2} GiB ({s}{d:.0}%{s})",
         .{ meminfo.used, meminfo.total, Colors.CYAN, meminfo.used_percent, Colors.RESET },
-    ) catch |err| return err;
-}
-
-// Tests with pure parsing using Reader instead of file
-pub const TestMemory = struct {
-    total: f64,
-    available: f64,
-    used: f64,
-    used_percent: f64,
-};
-
-pub fn parseMeminfoData(data: []const u8) TestMemory {
-    var memory = TestMemory{ .total = 0, .available = 0, .used = 0, .used_percent = 0 };
-    var line_iter = std.mem.splitScalar(u8, data, '\n');
-    while (line_iter.next()) |line| {
-        if (std.mem.startsWith(u8, line, "MemTotal:")) {
-            var value_it = std.mem.tokenizeScalar(u8, line, ':');
-            _ = value_it.next();
-            const value = value_it.next() orelse continue;
-            const trimmed_value = std.mem.trim(u8, value, "kB \t");
-            const total_kb = std.fmt.parseFloat(f64, trimmed_value) catch continue;
-            memory.total = total_kb / 1024.0 / 1024.0;
-        } else if (std.mem.startsWith(u8, line, "MemAvailable:")) {
-            var value_it = std.mem.tokenizeScalar(u8, line, ':');
-            _ = value_it.next();
-            const value = value_it.next() orelse continue;
-            const trimmed_value = std.mem.trim(u8, value, "kB \t");
-            const available_kb = std.fmt.parseFloat(f64, trimmed_value) catch continue;
-            memory.available = available_kb / 1024.0 / 1024.0;
-        }
-    }
-    memory.used = memory.total - memory.available;
-    memory.used_percent = if (memory.total > 0) (memory.used / memory.total) * 100 else 0;
-    return memory;
+    );
 }

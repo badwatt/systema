@@ -8,10 +8,7 @@ pub fn lineFinder(allocator: std.mem.Allocator, io: std.Io, file_path: []const u
 
     var file_buffer: [4096]u8 = undefined;
     var reader = file.reader(io, &file_buffer);
-    var line_number: usize = 0;
-
     while (try reader.interface.takeDelimiter('\n')) |line| {
-        line_number += 1;
         if (std.mem.startsWith(u8, line, starts_with)) {
             var name_it = std.mem.tokenizeScalar(u8, line, from_character);
             _ = name_it.next();

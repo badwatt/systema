@@ -65,9 +65,6 @@
         # nix run .#test
         apps.test = env.app [ ] "zig build test --release=fast -- \"$@\"";
 
-        # nix run .#docs
-        apps.docs = env.app [ ] "zig build docs --release=fast -- \"$@\"";
-
         # nix run .#zig2nix
         apps.zig2nix = env.app [ ] "zig2nix \"$@\"";
 

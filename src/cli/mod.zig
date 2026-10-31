@@ -10,13 +10,13 @@ const Self = @This();
 
 allocator: std.mem.Allocator,
 io: std.Io,
-config: Config,
+config: *Config,
 
 pub fn init(self: *Self, allocator: std.mem.Allocator, io: std.Io, config: *Config, args: std.process.Args) !void {
     self.* = .{
         .allocator = allocator,
         .io = io,
-        .config = config.*,
+        .config = config,
     };
 
     var args_iter = std.process.Args.iterate(args);
@@ -71,33 +71,35 @@ fn optKind(a: []const u8) enum { short, long, positional } {
     return .positional;
 }
 
-fn parseArgBool(arg: []const u8) ?bool {
-    if (arg.len == 0) return true;
-
-    if (std.ascii.eqlIgnoreCase(arg, "true")) return true;
-    if (std.ascii.eqlIgnoreCase(arg, "false")) return false;
-    if (std.ascii.eqlIgnoreCase(arg, "1")) return true;
-    if (std.ascii.eqlIgnoreCase(arg, "0")) return false;
-
-    return null;
-}
-
 fn eql(a: []const u8, b: []const u8) bool {
     return std.mem.eql(u8, a, b);
 }
 
 // -- Tests --
 
-test "help message contains app name" {
-    const msg = try std.fmt.allocPrint(std.testing.allocator, "Usage:\n  {s} [options]", .{"systema"});
+test "help text documents the usage line and every supported option" {
+    const msg = try help_mod.text(std.testing.allocator, "systema");
     defer std.testing.allocator.free(msg);
-    try std.testing.expect(std.mem.containsAtLeast(u8, msg, 1, "systema"));
+
+    try std.testing.expect(std.mem.indexOf(u8, msg, "systema [options] [path...]") != null);
+
+    for ([_][]const u8{
+        "--help",
+        "--version",
+        "--logo-path",
+        "--logo-gap",
+        "--logo-color",
+        "--icons-color",
+        "--labels-color",
+    }) |option| {
+        try std.testing.expect(std.mem.indexOf(u8, msg, option) != null);
+    }
 }
 
-test "version message contains version string" {
-    const name = try std.ascii.allocUpperString(std.testing.allocator, "systema");
-    defer std.testing.allocator.free(name);
-    const msg = try std.fmt.allocPrint(std.testing.allocator, "{s} version: {s}", .{ name, "0.1.2" });
+test "version text upper-cases the app name and embeds the version" {
+    const msg = try version_mod.text(std.testing.allocator, "systema", "1.2.3");
     defer std.testing.allocator.free(msg);
-    try std.testing.expect(std.mem.containsAtLeast(u8, msg, 1, "0.1.2"));
+
+    try std.testing.expect(std.mem.indexOf(u8, msg, "SYSTEMA") != null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "1.2.3") != null);
 }

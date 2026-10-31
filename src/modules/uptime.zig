@@ -17,19 +17,17 @@ pub fn calcUptime(uptime_in_seconds: i64) Uptime {
 
 fn formatUptime(allocator: std.mem.Allocator, uptime: Uptime) ![]const u8 {
     var parts: std.ArrayList([]const u8) = .empty;
-    defer parts.deinit(allocator);
-
-    if (uptime.days > 0) try parts.append(allocator, std.fmt.allocPrint(allocator, "{} days", .{uptime.days}) catch return "0 seconds");
-    if (uptime.hours > 0) try parts.append(allocator, std.fmt.allocPrint(allocator, "{} hours", .{uptime.hours}) catch return "0 seconds");
-    if (uptime.minutes > 0) try parts.append(allocator, std.fmt.allocPrint(allocator, "{} minutes", .{uptime.minutes}) catch return "0 seconds");
-    if (uptime.seconds > 0) try parts.append(allocator, std.fmt.allocPrint(allocator, "{} seconds", .{uptime.seconds}) catch return "0 seconds");
-    defer for (parts.items) |part| {
-        allocator.free(part);
-    };
-
-    if (parts.items.len == 0) {
-        return try allocator.dupe(u8, "0 seconds");
+    defer {
+        for (parts.items) |part| allocator.free(part);
+        parts.deinit(allocator);
     }
+
+    if (uptime.days > 0) try parts.append(allocator, try std.fmt.allocPrint(allocator, "{d} days", .{uptime.days}));
+    if (uptime.hours > 0) try parts.append(allocator, try std.fmt.allocPrint(allocator, "{d} hours", .{uptime.hours}));
+    if (uptime.minutes > 0) try parts.append(allocator, try std.fmt.allocPrint(allocator, "{d} minutes", .{uptime.minutes}));
+    if (uptime.seconds > 0) try parts.append(allocator, try std.fmt.allocPrint(allocator, "{d} seconds", .{uptime.seconds}));
+
+    if (parts.items.len == 0) return allocator.dupe(u8, "0 seconds");
 
     return std.mem.join(allocator, " ", parts.items);
 }
@@ -44,7 +42,7 @@ pub fn parseFromReader(allocator: std.mem.Allocator, reader: anytype) ![]const u
 }
 
 pub fn getUptimeInfo(allocator: std.mem.Allocator, io: std.Io) ![]const u8 {
-    const file = std.Io.Dir.openFileAbsolute(io, "/proc/uptime", .{}) catch return "0 seconds";
+    const file = std.Io.Dir.openFileAbsolute(io, "/proc/uptime", .{}) catch return allocator.dupe(u8, "0 seconds");
     defer file.close(io);
 
     var file_buffer: [4096]u8 = undefined;
