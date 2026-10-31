@@ -88,3 +88,7 @@ test "stat reports a usage percentage between 0 and 100" {
     try std.testing.expect(disk.disk_usage_percentage <= 100);
     try std.testing.expect(disk.disk_size > 0);
 }
+
+test "stat fails for a path that does not exist" {
+    try std.testing.expectError(error.StatvfsFailed, stat(std.testing.allocator, "/definitely/not/here"));
+}

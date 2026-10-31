@@ -90,6 +90,20 @@ test "parseMeminfoData: empty input yields zeroes instead of NaN" {
     try std.testing.expectEqual(@as(f64, 0), meminfo.used_percent);
 }
 
+test "parseMeminfoData ignores a line with no value" {
+    const meminfo = parseMeminfoData("MemTotal:\nMemAvailable:\n");
+
+    try std.testing.expectEqual(@as(f64, 0), meminfo.total);
+    try std.testing.expectEqual(@as(f64, 0), meminfo.available);
+}
+
+test "parseMeminfoData ignores a value that is not a number" {
+    const meminfo = parseMeminfoData("MemTotal:   lots kB\nMemAvailable:  17 kB\n");
+
+    try std.testing.expectEqual(@as(f64, 0), meminfo.total);
+    try std.testing.expectApproxEqAbs(@as(f64, 17.0 / 1024.0 / 1024.0), meminfo.available, 1e-9);
+}
+
 test "format renders used, total and percentage" {
     const meminfo = Memory{ .total = 16, .available = 4, .used = 12, .used_percent = 75 };
 

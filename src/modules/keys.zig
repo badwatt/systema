@@ -56,3 +56,24 @@ test "readKeyValueLine returns an error for a missing key" {
 
     try std.testing.expectError(error.LineNotFound, readKeyValueLine(std.testing.allocator, std.testing.io, tmp_path, "MISSING", '='));
 }
+
+test "readKeyValueLine reports a key that has no value" {
+    const tmp_path = "/tmp/systema_test_keys_novalue.txt";
+    {
+        const file = try std.Io.Dir.createFileAbsolute(std.testing.io, tmp_path, .{});
+        defer file.close(std.testing.io);
+        var writer = file.writer(std.testing.io, &.{});
+        try writer.interface.writeAll("PRETTY_NAME\n");
+        try writer.interface.flush();
+    }
+    defer std.Io.Dir.deleteFileAbsolute(std.testing.io, tmp_path) catch {};
+
+    try std.testing.expectError(error.LineIsNull, readKeyValueLine(std.testing.allocator, std.testing.io, tmp_path, "PRETTY_NAME", '='));
+}
+
+test "readKeyValueLine propagates a failure to open the file" {
+    try std.testing.expectError(
+        error.FileNotFound,
+        readKeyValueLine(std.testing.allocator, std.testing.io, "/nonexistent/systema", "KEY", '='),
+    );
+}

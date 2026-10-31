@@ -84,11 +84,13 @@ test "hex: rejects the wrong length" {
     try std.testing.expectError(error.InvalidLength, hex(arena.allocator(), "ABC"));
 }
 
-test "hex: rejects non-hex digits" {
+test "hex: rejects non-hex digits in any of the three components" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
     try std.testing.expectError(error.InvalidCharacter, hex(arena.allocator(), "GGGGGG"));
+    try std.testing.expectError(error.InvalidCharacter, hex(arena.allocator(), "AAGGCC"));
+    try std.testing.expectError(error.InvalidCharacter, hex(arena.allocator(), "AABBGG"));
 }
 
 test "comptime palette is populated" {

@@ -29,20 +29,37 @@ pub const Modules = struct {
 /// fallback in one place instead of scattering `catch "Unknown"` around.
 const unknown = "Unknown";
 
+/// Display order, glyph and label live in one table: adding a field is one
+/// entry here plus one `value()` in this directory.
+const default_spec = .{
+    .{ system_mod, "\u{f313}", "System" },
+    .{ kernel_mod, "\u{e712}", "Kernel" },
+    .{ desktop_mod, "\u{f2d2}", "Desktop" },
+    .{ cpu_mod, "\u{f2db}", "CPU" },
+    .{ shell_mod, "\u{e795}", "Shell" },
+    .{ uptime_mod, "\u{f017}", "Uptime" },
+    .{ memory_mod, "\u{f4bc}", "Memory" },
+    .{ storage_mod, "\u{000f194e}", "Storage (/)" },
+    .{ palette_mod, "\u{e22b}", "Colors" },
+};
+
 pub fn init(allocator: std.mem.Allocator, io: std.Io, environ_map: std.process.Environ.Map) !Modules {
-    // Display order, glyph and label live in one table: adding a field is one
-    // entry here plus one `value()` in this directory.
-    const spec = .{
-        .{ system_mod, "\u{f313}", "System" },
-        .{ kernel_mod, "\u{e712}", "Kernel" },
-        .{ desktop_mod, "\u{f2d2}", "Desktop" },
-        .{ cpu_mod, "\u{f2db}", "CPU" },
-        .{ shell_mod, "\u{e795}", "Shell" },
-        .{ uptime_mod, "\u{f017}", "Uptime" },
-        .{ memory_mod, "\u{f4bc}", "Memory" },
-        .{ storage_mod, "\u{000f194e}", "Storage (/)" },
-        .{ palette_mod, "\u{e22b}", "Colors" },
-    };
+    return initWith(allocator, io, environ_map, hostname_mod.get, default_spec);
+}
+
+/// Same as `init` but with the hostname source and the provider list injected,
+/// so that both `unknown` fallbacks can be exercised in a test. Both parameters
+/// are comptime, so `init` pays nothing for them.
+pub fn initWith(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    environ_map: std.process.Environ.Map,
+    comptime hostname_provider: anytype,
+    comptime spec: anytype,
+) !Modules {
+    // Resolved first so that a hostname failure degrades to `unknown` instead of
+    // aborting the whole render.
+    const hostname = hostname_provider(allocator) catch unknown;
 
     var fields: std.ArrayList(Field) = .empty;
     try fields.ensureTotalCapacity(allocator, spec.len);
@@ -57,7 +74,7 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io, environ_map: std.process.E
 
     return .{
         .username = username_mod.get(environ_map) orelse unknown,
-        .hostname = hostname_mod.get(allocator) catch unknown,
+        .hostname = hostname,
         .fields = try fields.toOwnedSlice(allocator),
     };
 }
@@ -123,4 +140,51 @@ test "every module reports every label exactly once" {
             try std.testing.expect(!std.mem.eql(u8, field.label, other.label));
         }
     }
+}
+
+const FailingProvider = struct {
+    fn value(
+        allocator: std.mem.Allocator,
+        io: std.Io,
+        environ_map: std.process.Environ.Map,
+    ) ![]const u8 {
+        _ = allocator;
+        _ = io;
+        _ = environ_map;
+        return error.Unavailable;
+    }
+};
+
+test "initWith falls back to Unknown for a provider that fails" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var environ_map = try testEnv(&.{});
+    defer environ_map.deinit();
+
+    const modules = try initWith(arena.allocator(), std.testing.io, environ_map, hostname_mod.get, .{
+        .{ FailingProvider, "\u{f313}", "Broken" },
+    });
+
+    try std.testing.expectEqual(@as(usize, 1), modules.fields.len);
+    try std.testing.expectEqualStrings("Broken", modules.fields[0].label);
+    try std.testing.expectEqualStrings("Unknown", modules.fields[0].value);
+}
+
+fn unavailableHostname(allocator: std.mem.Allocator) ![]const u8 {
+    _ = allocator;
+    return error.Unavailable;
+}
+
+test "initWith falls back to Unknown when the hostname cannot be read" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var environ_map = try testEnv(&.{});
+    defer environ_map.deinit();
+
+    const modules = try initWith(arena.allocator(), std.testing.io, environ_map, unavailableHostname, default_spec);
+
+    try std.testing.expectEqualStrings("Unknown", modules.hostname);
+    try std.testing.expectEqual(@as(usize, 9), modules.fields.len);
 }
