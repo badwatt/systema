@@ -1,4 +1,5 @@
 const std = @import("std");
+const Environ = @import("environ").Environ;
 const Style = @import("style").Style;
 
 pub const Memory = struct {
@@ -53,8 +54,8 @@ fn readMeminfo(io: std.Io) !Memory {
     return memory;
 }
 
-pub fn value(allocator: std.mem.Allocator, io: std.Io, environ_map: std.process.Environ.Map) ![]const u8 {
-    _ = environ_map;
+pub fn value(allocator: std.mem.Allocator, io: std.Io, environ: Environ) ![]const u8 {
+    _ = environ;
     return format(allocator, try readMeminfo(io), .{});
 }
 

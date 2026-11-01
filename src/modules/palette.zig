@@ -1,4 +1,5 @@
 const std = @import("std");
+const Environ = @import("environ").Environ;
 const Style = @import("style").Style;
 
 /// The palette swatches. This field has no data behind it: it exists to show
@@ -17,9 +18,9 @@ pub fn format(allocator: std.mem.Allocator, style: Style) ![]const u8 {
     });
 }
 
-pub fn value(allocator: std.mem.Allocator, io: std.Io, environ_map: std.process.Environ.Map) ![]const u8 {
+pub fn value(allocator: std.mem.Allocator, io: std.Io, environ: Environ) ![]const u8 {
     _ = io;
-    _ = environ_map;
+    _ = environ;
 
     return format(allocator, .{});
 }

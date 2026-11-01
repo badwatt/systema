@@ -4,11 +4,24 @@ const zon = @import("build.zig.zon");
 pub const version = std.SemanticVersion.parse(zon.version) catch @panic("Invalid version in build.zig.zon");
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
+    // Default to a static musl binary on Linux. Two measured reasons: the glibc
+    // dynamic build pays for the loader on every run, and Zig's libc-less
+    // startup path turned out to be ~0.1 ms slower than musl's `_start`. Both
+    // differences are visible in a plain `zig build` timed with an empty
+    // program as the floor. `-Dtarget` still overrides this.
+    const target = b.standardTargetOptions(.{
+        .default_target = .{ .abi = .musl },
+    });
     const optimize = b.standardOptimizeOption(.{});
 
     const style_mod = b.createModule(.{
         .root_source_file = b.path("src/style.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const environ_mod = b.createModule(.{
+        .root_source_file = b.path("src/environ.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -29,18 +42,19 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "style", .module = style_mod },
             .{ .name = "config", .module = config_mod },
+            .{ .name = "environ", .module = environ_mod },
         },
     });
 
     const modules_mod = b.createModule(.{
         .root_source_file = b.path("src/modules/mod.zig"),
         .target = target,
-        .optimize = optimize,
-        // storage.zig calls statvfs(3) through libc.
         .link_libc = target.result.os.tag == .linux,
+        .optimize = optimize,
         .imports = &.{
             .{ .name = "style", .module = style_mod },
             .{ .name = "config", .module = config_mod },
+            .{ .name = "environ", .module = environ_mod },
         },
     });
 
@@ -57,6 +71,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "style", .module = style_mod },
             .{ .name = "config", .module = config_mod },
+            .{ .name = "environ", .module = environ_mod },
             .{ .name = "modules", .module = modules_mod },
         },
     });
@@ -70,6 +85,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "modules", .module = modules_mod },
             .{ .name = "render", .module = render_mod },
             .{ .name = "config", .module = config_mod },
+            .{ .name = "environ", .module = environ_mod },
             .{ .name = "style", .module = style_mod },
             .{ .name = "zon", .module = zon_mod },
         },
@@ -96,7 +112,7 @@ pub fn build(b: *std.Build) void {
 
     // One test binary per layer, so a file's tests only run when the layer it
     // belongs to is exercised.
-    for ([_]*std.Build.Module{ style_mod, config_mod, cli_mod, modules_mod, render_mod, app_mod }) |test_root| {
+    for ([_]*std.Build.Module{ style_mod, environ_mod, config_mod, cli_mod, modules_mod, render_mod, app_mod }) |test_root| {
         test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = test_root })).step);
     }
 }

@@ -1,5 +1,6 @@
 const std = @import("std");
 const Config = @import("config").Config;
+const Environ = @import("environ").Environ;
 const modules_mod = @import("modules");
 const Colors = @import("style");
 
@@ -21,7 +22,7 @@ pub fn print(
     out: *std.Io.Writer,
     allocator: std.mem.Allocator,
     io: std.Io,
-    environ_map: std.process.Environ.Map,
+    environ: Environ,
     config: *const Config,
     modules: modules_mod.Modules,
 ) !void {
@@ -43,7 +44,7 @@ pub fn print(
     try out.print("\n", .{});
 
     if (config.logo.enabled) {
-        try printWithLogo(out, allocator, io, environ_map, config, lines.items);
+        try printWithLogo(out, allocator, io, environ, config, lines.items);
     } else {
         for (lines.items) |line| try out.print("{s}\n", .{line});
     }
@@ -56,11 +57,11 @@ fn printWithLogo(
     out: *std.Io.Writer,
     allocator: std.mem.Allocator,
     io: std.Io,
-    environ_map: std.process.Environ.Map,
+    environ: Environ,
     config: *const Config,
     lines: []const []const u8,
 ) !void {
-    const logo_content = try loadLogo(allocator, io, environ_map, config);
+    const logo_content = try loadLogo(allocator, io, environ, config);
 
     var logo_lines: std.ArrayList([]const u8) = .empty;
     defer logo_lines.deinit(allocator);
@@ -98,13 +99,13 @@ fn printWithLogo(
 fn loadLogo(
     allocator: std.mem.Allocator,
     io: std.Io,
-    environ_map: std.process.Environ.Map,
+    environ: Environ,
     config: *const Config,
 ) ![]const u8 {
     const path = config.logo.path orelse return config.logo.embed;
 
     const expanded: ?[]u8 = if (std.mem.startsWith(u8, path, "~/"))
-        if (environ_map.get("HOME")) |home|
+        if (environ.get("HOME")) |home|
             try std.fs.path.join(allocator, &.{ home, path[2..] })
         else
             null
@@ -143,23 +144,21 @@ fn writeLogoFile(content: []const u8) !void {
     try writer.interface.flush();
 }
 
-fn testEnviron() !std.process.Environ.Map {
-    var environ_map = std.process.Environ.Map.init(std.testing.allocator);
-    errdefer environ_map.deinit();
-
-    try environ_map.put("USER", "alice");
-    try environ_map.put("SHELL", "/usr/bin/zsh");
-    return environ_map;
+fn testEnviron() !Environ.Testing {
+    return Environ.Testing.init(std.testing.allocator, &.{
+        .{ "USER", "alice" },
+        .{ "SHELL", "/usr/bin/zsh" },
+    });
 }
 
 fn render(
     out: *std.Io.Writer,
     allocator: std.mem.Allocator,
-    environ_map: std.process.Environ.Map,
+    environ: Environ,
     config: *const Config,
 ) !void {
-    const modules = try modules_mod.init(allocator, std.testing.io, environ_map);
-    try print(out, allocator, std.testing.io, environ_map, config, modules);
+    const modules = try modules_mod.init(allocator, std.testing.io, environ);
+    try print(out, allocator, std.testing.io, environ, config, modules);
 }
 
 /// Column of `needle` in `line`, counted in codepoints and ignoring ANSI
@@ -193,11 +192,11 @@ test "print draws the title and one line per field when the logo is off" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    var environ_map = try testEnviron();
-    defer environ_map.deinit();
+    var env = try testEnviron();
+    defer env.deinit();
 
     const config = Config{ .name = "systema", .version = "1.0.0", .logo = .{ .enabled = false } };
-    try render(&out.writer, arena.allocator(), environ_map, &config);
+    try render(&out.writer, arena.allocator(), env.environ, &config);
 
     const output = out.writer.buffered();
 
@@ -214,11 +213,11 @@ test "every field line puts the separator in the same column" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    var environ_map = try testEnviron();
-    defer environ_map.deinit();
+    var env = try testEnviron();
+    defer env.deinit();
 
     const config = Config{ .name = "systema", .version = "1.0.0", .logo = .{ .enabled = false } };
-    try render(&out.writer, arena.allocator(), environ_map, &config);
+    try render(&out.writer, arena.allocator(), env.environ, &config);
 
     // This is the regression test for the labels being hand-aligned: "Storage
     // (/)" used to sit one column further right than the rest.
@@ -249,15 +248,15 @@ test "print interleaves the logo and the info column" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    var environ_map = try testEnviron();
-    defer environ_map.deinit();
+    var env = try testEnviron();
+    defer env.deinit();
 
     const config = Config{
         .name = "systema",
         .version = "1.0.0",
         .logo = .{ .path = logo_path, .gap = 2 },
     };
-    try render(&out.writer, arena.allocator(), environ_map, &config);
+    try render(&out.writer, arena.allocator(), env.environ, &config);
 
     var line_iter = std.mem.splitScalar(u8, out.writer.buffered(), '\n');
     _ = line_iter.next(); // leading blank line
@@ -281,12 +280,12 @@ test "loadLogo reads the file at the given path" {
     defer std.Io.Dir.deleteFileAbsolute(std.testing.io, logo_path) catch {};
     try writeLogoFile("X\nY\n");
 
-    var environ_map = try testEnviron();
-    defer environ_map.deinit();
+    var env = try testEnviron();
+    defer env.deinit();
 
     var config = Config{ .name = "systema", .version = "1.0.0", .logo = .{ .path = logo_path } };
 
-    const logo = try loadLogo(std.testing.allocator, std.testing.io, environ_map, &config);
+    const logo = try loadLogo(std.testing.allocator, std.testing.io, env.environ, &config);
     defer std.testing.allocator.free(logo);
 
     try std.testing.expectEqualStrings("X\nY\n", logo);
@@ -300,9 +299,11 @@ test "loadLogo expands a leading ~/ from $HOME" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var environ_map = try testEnviron();
-    defer environ_map.deinit();
-    try environ_map.put("HOME", std.fs.path.dirname(logo_path).?);
+    var env = try Environ.Testing.init(std.testing.allocator, &.{
+        .{ "USER", "alice" },
+        .{ "HOME", std.fs.path.dirname(logo_path).? },
+    });
+    defer env.deinit();
 
     var config = Config{
         .name = "systema",
@@ -310,7 +311,7 @@ test "loadLogo expands a leading ~/ from $HOME" {
         .logo = .{ .path = try std.fmt.allocPrint(allocator, "~/{s}", .{std.fs.path.basename(logo_path)}) },
     };
 
-    const logo = try loadLogo(allocator, std.testing.io, environ_map, &config);
+    const logo = try loadLogo(allocator, std.testing.io, env.environ, &config);
     try std.testing.expectEqualStrings("Z\n", logo);
 }
 
@@ -327,42 +328,39 @@ test "loadLogo falls back to the embedded asset for an oversized file" {
         try writer.interface.flush();
     }
 
-    var environ_map = try testEnviron();
-    defer environ_map.deinit();
+    var env = try testEnviron();
+    defer env.deinit();
 
     var config = Config{ .name = "systema", .version = "1.0.0", .logo = .{ .path = logo_path } };
 
-    const logo = try loadLogo(std.testing.allocator, std.testing.io, environ_map, &config);
+    const logo = try loadLogo(std.testing.allocator, std.testing.io, env.environ, &config);
     try std.testing.expectEqualStrings(config.logo.embed, logo);
 }
 
 test "loadLogo falls back to the embedded asset for an unreadable path" {
-    var environ_map = try testEnviron();
-    defer environ_map.deinit();
+    var env = try testEnviron();
+    defer env.deinit();
 
     var config = Config{ .name = "systema", .version = "1.0.0", .logo = .{ .path = "/nonexistent/logo" } };
 
-    const logo = try loadLogo(std.testing.allocator, std.testing.io, environ_map, &config);
+    const logo = try loadLogo(std.testing.allocator, std.testing.io, env.environ, &config);
     try std.testing.expectEqualStrings(config.logo.embed, logo);
 }
 
 test "loadLogo falls back when $HOME is unset for a ~/ path" {
-    var environ_map = std.process.Environ.Map.init(std.testing.allocator);
-    defer environ_map.deinit();
-
     var config = Config{ .name = "systema", .version = "1.0.0", .logo = .{ .path = "~/logo" } };
 
-    const logo = try loadLogo(std.testing.allocator, std.testing.io, environ_map, &config);
+    const logo = try loadLogo(std.testing.allocator, std.testing.io, Environ.empty, &config);
     try std.testing.expectEqualStrings(config.logo.embed, logo);
 }
 
 test "loadLogo uses the embedded asset when no path is set" {
-    var environ_map = try testEnviron();
-    defer environ_map.deinit();
+    var env = try testEnviron();
+    defer env.deinit();
 
     var config = Config{ .name = "systema", .version = "1.0.0" };
 
-    const logo = try loadLogo(std.testing.allocator, std.testing.io, environ_map, &config);
+    const logo = try loadLogo(std.testing.allocator, std.testing.io, env.environ, &config);
     try std.testing.expectEqualStrings(config.logo.embed, logo);
 }
 

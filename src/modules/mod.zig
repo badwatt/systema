@@ -1,4 +1,5 @@
 const std = @import("std");
+const Environ = @import("environ").Environ;
 
 const cpu_mod = @import("cpu.zig");
 const desktop_mod = @import("desktop.zig");
@@ -43,8 +44,8 @@ const default_spec = .{
     .{ palette_mod, "\u{e22b}", "Colors" },
 };
 
-pub fn init(allocator: std.mem.Allocator, io: std.Io, environ_map: std.process.Environ.Map) !Modules {
-    return initWith(allocator, io, environ_map, hostname_mod.get, default_spec);
+pub fn init(allocator: std.mem.Allocator, io: std.Io, environ: Environ) !Modules {
+    return initWith(allocator, io, environ, hostname_mod.get, default_spec);
 }
 
 /// Same as `init` but with the hostname source and the provider list injected,
@@ -53,7 +54,7 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io, environ_map: std.process.E
 pub fn initWith(
     allocator: std.mem.Allocator,
     io: std.Io,
-    environ_map: std.process.Environ.Map,
+    environ: Environ,
     comptime hostname_provider: anytype,
     comptime spec: anytype,
 ) !Modules {
@@ -68,12 +69,12 @@ pub fn initWith(
         fields.appendAssumeCapacity(.{
             .icon = entry[1],
             .label = entry[2],
-            .value = entry[0].value(allocator, io, environ_map) catch unknown,
+            .value = entry[0].value(allocator, io, environ) catch unknown,
         });
     }
 
     return .{
-        .username = username_mod.get(environ_map) orelse unknown,
+        .username = username_mod.get(environ) orelse unknown,
         .hostname = hostname,
         .fields = try fields.toOwnedSlice(allocator),
     };
@@ -81,27 +82,19 @@ pub fn initWith(
 
 // -- Tests --
 
-fn testEnv(entries: []const [2][]const u8) !std.process.Environ.Map {
-    var environ_map = std.process.Environ.Map.init(std.testing.allocator);
-    errdefer environ_map.deinit();
-
-    for (entries) |entry| try environ_map.put(entry[0], entry[1]);
-    return environ_map;
-}
-
 test "init produces one field per module, in display order" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    var environ_map = try testEnv(&.{
+    var env = try Environ.Testing.init(std.testing.allocator, &.{
         .{ "USER", "alice" },
         .{ "SHELL", "/usr/bin/zsh" },
         .{ "XDG_CURRENT_DESKTOP", "GNOME" },
         .{ "XDG_SESSION_TYPE", "wayland" },
     });
-    defer environ_map.deinit();
+    defer env.deinit();
 
-    const modules = try init(arena.allocator(), std.testing.io, environ_map);
+    const modules = try init(arena.allocator(), std.testing.io, env.environ);
 
     try std.testing.expectEqual(@as(usize, 9), modules.fields.len);
     try std.testing.expectEqualStrings("System", modules.fields[0].label);
@@ -116,8 +109,7 @@ test "init still yields a full set of fields when the environment is empty" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    const environ_map = std.process.Environ.Map.init(arena.allocator());
-    const modules = try init(arena.allocator(), std.testing.io, environ_map);
+    const modules = try init(arena.allocator(), std.testing.io, Environ.empty);
 
     try std.testing.expectEqual(@as(usize, 9), modules.fields.len);
     try std.testing.expectEqualStrings("Unknown", modules.username);
@@ -130,10 +122,7 @@ test "every module reports every label exactly once" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    var environ_map = try testEnv(&.{});
-    defer environ_map.deinit();
-
-    const modules = try init(arena.allocator(), std.testing.io, environ_map);
+    const modules = try init(arena.allocator(), std.testing.io, Environ.empty);
 
     for (modules.fields, 0..) |field, i| {
         for (modules.fields[i + 1 ..]) |other| {
@@ -146,11 +135,11 @@ const FailingProvider = struct {
     fn value(
         allocator: std.mem.Allocator,
         io: std.Io,
-        environ_map: std.process.Environ.Map,
+        environ: Environ,
     ) ![]const u8 {
         _ = allocator;
         _ = io;
-        _ = environ_map;
+        _ = environ;
         return error.Unavailable;
     }
 };
@@ -159,10 +148,7 @@ test "initWith falls back to Unknown for a provider that fails" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    var environ_map = try testEnv(&.{});
-    defer environ_map.deinit();
-
-    const modules = try initWith(arena.allocator(), std.testing.io, environ_map, hostname_mod.get, .{
+    const modules = try initWith(arena.allocator(), std.testing.io, Environ.empty, hostname_mod.get, .{
         .{ FailingProvider, "\u{f313}", "Broken" },
     });
 
@@ -180,10 +166,7 @@ test "initWith falls back to Unknown when the hostname cannot be read" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    var environ_map = try testEnv(&.{});
-    defer environ_map.deinit();
-
-    const modules = try initWith(arena.allocator(), std.testing.io, environ_map, unavailableHostname, default_spec);
+    const modules = try initWith(arena.allocator(), std.testing.io, Environ.empty, unavailableHostname, default_spec);
 
     try std.testing.expectEqualStrings("Unknown", modules.hostname);
     try std.testing.expectEqual(@as(usize, 9), modules.fields.len);

@@ -28,7 +28,7 @@ A fast and lightweight system information fetch tool written in Zig.
 ## Prerequisites
 
 - **Zig**: Version 0.17.0 or later
-- **Linux**: Currently supports Linux systems (LibC required)
+- **Linux**: Currently supports Linux systems
 
 ## Installation
 

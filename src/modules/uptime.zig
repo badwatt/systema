@@ -1,4 +1,5 @@
 const std = @import("std");
+const Environ = @import("environ").Environ;
 
 pub const Uptime = struct {
     days: i64,
@@ -42,8 +43,8 @@ pub fn parseFromReader(allocator: std.mem.Allocator, reader: anytype) ![]const u
 }
 
 /// Reads /proc/uptime and formats it, e.g. "3 days 4 hours 19 minutes 45 seconds".
-pub fn value(allocator: std.mem.Allocator, io: std.Io, environ_map: std.process.Environ.Map) ![]const u8 {
-    _ = environ_map;
+pub fn value(allocator: std.mem.Allocator, io: std.Io, environ: Environ) ![]const u8 {
+    _ = environ;
 
     const file = try std.Io.Dir.openFileAbsolute(io, "/proc/uptime", .{});
     defer file.close(io);

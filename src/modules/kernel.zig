@@ -1,9 +1,10 @@
 const std = @import("std");
+const Environ = @import("environ").Environ;
 
 /// Kernel name, release and machine, e.g. "Linux 6.9.1 (x86_64)".
-pub fn value(allocator: std.mem.Allocator, io: std.Io, environ_map: std.process.Environ.Map) ![]const u8 {
+pub fn value(allocator: std.mem.Allocator, io: std.Io, environ: Environ) ![]const u8 {
     _ = io;
-    _ = environ_map;
+    _ = environ;
 
     const uname = std.posix.uname();
     return std.fmt.allocPrint(allocator, "{s} {s} ({s})", .{
