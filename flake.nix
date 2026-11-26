@@ -11,6 +11,19 @@
       zon = builtins.readFile ./build.zig.zon;
       zonFlat = builtins.replaceStrings [ "\n" "\r" ] [ " " " " ] zon;
       minZig = builtins.match ".*\\.minimum_zig_version[[:space:]]*=[[:space:]]*\"([^\"]+)\".*" zonFlat;
+      # pname and version are read here rather than left to zig2nix, which parses
+      # build.zig.zon by building and running zon2json at eval time. That
+      # import-from-derivation cannot run when cross-evaluating another
+      # architecture (aarch64 config from an x86_64 machine, for example).
+      zonField =
+        field: re:
+        let
+          found = builtins.match re zonFlat;
+        in
+        if found == null then
+          throw "flake.nix: build.zig.zon does not declare ${field}"
+        else
+          builtins.head found;
       zigAttr =
         if minZig == null then
           throw "flake.nix: build.zig.zon does not declare minimum_zig_version"
@@ -33,6 +46,11 @@
         # they are not repeated here.
         base = {
           src = self;
+          pname = zonField "name" ".*\\.name[[:space:]]*=[[:space:]]*\\.([A-Za-z0-9_]+).*";
+          version = zonField "version" ".*\\.version[[:space:]]*=[[:space:]]*\"([^\"]+)\".*";
+          # Pinned for the same reason as pname/version: zig2nix otherwise asks
+          # `zig2nix target` (another import-from-derivation) what to build for.
+          zigTarget = "${system}-musl";
           meta = {
             description = "A neofetch-style system information tool";
             homepage = "https://github.com/badwatt/systema";
